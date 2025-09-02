@@ -1,5 +1,5 @@
-import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import React, { useRef } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, Animated } from "react-native";
 
 const meditations = [
   { id: 1, title: "Morning Calm", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" },
@@ -7,13 +7,24 @@ const meditations = [
   { id: 3, title: "Deep Relaxation", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3" }
 ];
 
+function Item({ med, selected, onPress }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const pressIn = () => Animated.spring(scale, { toValue: 0.98, useNativeDriver: true, speed: 30 }).start();
+  const pressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 30 }).start();
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <TouchableOpacity style={[styles.item, selected && styles.selected]} onPress={onPress} onPressIn={pressIn} onPressOut={pressOut}>
+        <Text style={styles.text}>{med.title}</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
 export default function MeditationList({ onSelect, selected }) {
   return (
     <View style={styles.list}>
       {meditations.map(med => (
-        <TouchableOpacity key={med.id} style={[styles.item, selected?.id === med.id && styles.selected]} onPress={() => onSelect(med)}>
-          <Text style={styles.text}>{med.title}</Text>
-        </TouchableOpacity>
+        <Item key={med.id} med={med} selected={selected?.id === med.id} onPress={() => onSelect(med)} />
       ))}
     </View>
   );

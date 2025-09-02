@@ -1,13 +1,17 @@
 import React, { useRef, useState } from "react";
 import { View, Text, StyleSheet, useWindowDimensions, FlatList, Image } from "react-native";
+import LottieView from "lottie-react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import PrimaryButton from "../src/components/PrimaryButton";
 
 const slides = [
-  { key: "1", title: "Welcome to Calm Space", subtitle: "Breathe, relax, and find your balance.", image: require("../assets/splash-icon.png") },
-  { key: "2", title: "Personalized Plans", subtitle: "Answer a few questions and get a tailored routine.", image: require("../assets/icon.png") },
-  { key: "3", title: "Daily Reminders", subtitle: "Stay consistent with gentle notifications.", image: require("../assets/adaptive-icon.png") },
+  { key: "1", title: "Welcome to Calm Space", subtitle: "Breathe, relax, and find your balance.",
+    lottie: require("../assets/lottie/breathe.json"), fallback: require("../assets/splash-icon.png") },
+  { key: "2", title: "Personalized Plans", subtitle: "Answer a few questions and get a tailored routine.",
+    lottie: require("../assets/lottie/plan.json"), fallback: require("../assets/icon.png") },
+  { key: "3", title: "Daily Reminders", subtitle: "Stay consistent with gentle notifications.",
+    lottie: require("../assets/lottie/reminder.json"), fallback: require("../assets/adaptive-icon.png") },
 ];
 
 export default function Onboarding() {
@@ -43,7 +47,7 @@ export default function Onboarding() {
         }}
         renderItem={({ item }) => (
           <View style={[styles.slide, { width }]}> 
-            <Image source={item.image} style={styles.img} />
+            <AnimWithFallback lottie={item.lottie} fallback={item.fallback} />
             <Text style={styles.title}>{item.title}</Text>
             <Text style={styles.subtitle}>{item.subtitle}</Text>
           </View>
@@ -61,7 +65,29 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#E1F5FE" },
   slide: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   img: { width: 160, height: 160, marginBottom: 18 },
+  animWrap: { width: 220, height: 220, marginBottom: 18 },
+  anim: { width: "100%", height: "100%" },
   title: { fontSize: 24, fontWeight: "800", color: "#01579B", textAlign: "center", marginBottom: 8 },
   subtitle: { fontSize: 16, color: "#0277BD", textAlign: "center" },
   footer: { position: "absolute", bottom: 24, left: 24, right: 24, flexDirection: "row", justifyContent: "space-between" },
 });
+
+function AnimWithFallback({ lottie, fallback }) {
+  const [err, setErr] = useState(false);
+  return (
+    <View style={styles.animWrap}>
+      {err ? (
+        <Image source={fallback} style={styles.img} />
+      ) : (
+        <LottieView
+          source={lottie}
+          autoPlay
+          loop
+          resizeMode="cover"
+          onError={() => setErr(true)}
+          style={styles.anim}
+        />
+      )}
+    </View>
+  );
+}

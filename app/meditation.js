@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, SafeAreaView } from "react-native";
 import MeditationList from "../src/components/MeditationList";
 import PlayerControls from "../src/components/PlayerControls";
 import BackgroundSoundSwitcher from "../src/components/BackgroundSoundSwitcher";
+import { colors, spacing } from "../src/theme";
 
 export default function MeditationPlayerScreen() {
   const [selectedMeditation, setSelectedMeditation] = useState(null);
@@ -18,6 +19,6 @@ export default function MeditationPlayerScreen() {
   );
 }
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, backgroundColor: "#E1F5FE" },
-  title: { fontSize: 22, fontWeight: "bold", color: "#0288D1", marginBottom: 10 }
+  container: { flex: 1, padding: spacing.lg, backgroundColor: colors.bg },
+  title: { fontSize: 24, fontWeight: "800", color: colors.text, marginBottom: spacing.md }
 });

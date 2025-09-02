@@ -7,10 +7,14 @@ export default function SplashScreen() {
   const router = useRouter();
   useEffect(() => {
     const go = async () => {
-      const flagged = await AsyncStorage.getItem("cs_onboarded");
-      setTimeout(() => {
-        router.replace(flagged ? "/login" : "/onboarding");
-      }, 1200);
+      try {
+        const flagged = await AsyncStorage.getItem("cs_onboarded");
+        setTimeout(() => {
+          router.replace(flagged ? "login" : "onboarding");
+        }, 1200);
+      } catch {
+        router.replace("login");
+      }
     };
     go();
   }, []);
