@@ -1,14 +1,18 @@
 import React, { useEffect } from "react";
 import { View, Text, StyleSheet, Image } from "react-native";
 import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function SplashScreen() {
   const router = useRouter();
   useEffect(() => {
-    const t = setTimeout(() => {
-      router.replace("/login");
-    }, 1500);
-    return () => clearTimeout(t);
+    const go = async () => {
+      const flagged = await AsyncStorage.getItem("cs_onboarded");
+      setTimeout(() => {
+        router.replace(flagged ? "/login" : "/onboarding");
+      }, 1200);
+    };
+    go();
   }, []);
 
   return (

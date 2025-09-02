@@ -1,21 +1,22 @@
 import React from "react";
-import { View, Text, Button, StyleSheet } from "react-native";
+import { View, Text, StyleSheet, SafeAreaView } from "react-native";
 import { useRouter } from "expo-router";
+import PrimaryButton from "../src/components/PrimaryButton";
 
 export default function HomeScreen() {
   const router = useRouter();
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <Text style={styles.title}>Welcome to Calm Space</Text>
       <Text style={styles.subtitle}>Guided Meditation & Stress Relief</Text>
-      <Button title="Start Meditation" onPress={() => router.push("/meditation")} />
-  <View style={{ height: 12 }} />
-  <Button title="Personalized Plan" onPress={() => router.push("/plan")} />
-  <View style={{ height: 12 }} />
-  <Button title="Weekly Report" onPress={() => router.push("/report")} />
-  <View style={{ height: 12 }} />
-  <Button title="Reminder Settings" onPress={() => router.push("/notifications")} />
-    </View>
+      <PrimaryButton title="Start Meditation" onPress={() => router.push("/meditation")} />
+      <View style={{ height: 12 }} />
+      <PrimaryButton title="Personalized Plan" onPress={() => router.push("/plan")} />
+      <View style={{ height: 12 }} />
+      <PrimaryButton title="Weekly Report" onPress={() => router.push("/report")} />
+      <View style={{ height: 12 }} />
+      <PrimaryButton title="Reminder Settings" onPress={() => router.push("/notifications")} style={{ backgroundColor: "#B3E5FC" }} />
+    </SafeAreaView>
   );
 }
 const styles = StyleSheet.create({
