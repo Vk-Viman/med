@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet, Button, Alert } from "react-native";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc } from "firebase/firestore";
 import { db, auth } from "../firebase/firebaseConfig";
 
 const choices = {
@@ -32,6 +32,35 @@ export default function PlanScreen() {
   const [mood, setMood] = useState(null);
   const [goal, setGoal] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [savedPlan, setSavedPlan] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [loadingSaved, setLoadingSaved] = useState(true);
+
+  useEffect(() => {
+    const loadSaved = async () => {
+      try {
+        const user = auth.currentUser;
+        if (!user) { setLoadingSaved(false); return; }
+        const ref = doc(db, "users", user.uid);
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data?.plan) setSavedPlan(data.plan);
+          if (data?.updatedAt) setLastUpdated(data.updatedAt);
+          if (data?.questionnaire) {
+            setStress(data.questionnaire.stress ?? null);
+            setMood(data.questionnaire.mood ?? null);
+            setGoal(data.questionnaire.goal ?? null);
+          }
+        }
+      } catch (e) {
+        console.log("Load saved plan error", e);
+      } finally {
+        setLoadingSaved(false);
+      }
+    };
+    loadSaved();
+  }, []);
 
   const generatePlan = () => {
     if (!stress || !mood || !goal) return null;
@@ -54,11 +83,14 @@ export default function PlanScreen() {
     }
     setSaving(true);
     try {
+      const now = Date.now();
       await setDoc(doc(db, "users", user.uid), {
         plan,
         questionnaire: { stress, mood, goal },
-        updatedAt: Date.now(),
+        updatedAt: now,
       }, { merge: true });
+      setSavedPlan(plan);
+      setLastUpdated(now);
       Alert.alert("Saved", `Your plan: ${plan.title} (${plan.minutes} min)`);
     } catch (e) {
       Alert.alert("Error", e.message);
@@ -72,6 +104,21 @@ export default function PlanScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Personalized Meditation Plan</Text>
+      {!loadingSaved && (
+        savedPlan ? (
+          <View style={styles.savedCard}>
+            <Text style={styles.savedTitle}>Your saved plan</Text>
+            <Text style={styles.savedText}>{savedPlan.title} • {savedPlan.minutes} min</Text>
+            {lastUpdated && (
+              <Text style={styles.updatedText}>
+                Last updated: {new Date(lastUpdated).toLocaleString()}
+              </Text>
+            )}
+          </View>
+        ) : (
+          <Text style={styles.planPlaceholder}>No saved plan yet. Answer below to create one.</Text>
+        )
+      )}
       <OptionRow label="Stress" options={choices.stress} value={stress} onChange={setStress} />
       <OptionRow label="Mood" options={choices.mood} value={mood} onChange={setMood} />
       <OptionRow label="Goal" options={choices.goal} value={goal} onChange={setGoal} />
@@ -94,4 +141,8 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", gap: 8 },
   plan: { marginVertical: 16, fontWeight: "600", color: "#01579B" },
   planPlaceholder: { marginVertical: 16, color: "#0277BD" },
+  savedCard: { backgroundColor: "#fff", borderRadius: 12, padding: 12, marginBottom: 16 },
+  savedTitle: { fontWeight: "700", color: "#01579B", marginBottom: 4 },
+  savedText: { color: "#0277BD" },
+  updatedText: { color: "#757575", fontSize: 12, marginTop: 2 },
 });

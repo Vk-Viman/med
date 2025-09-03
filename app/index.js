@@ -25,8 +25,14 @@ export default function HomeScreen() {
         <View style={{ height: spacing.sm }} />
         <PrimaryButton title="Personalized Plan" onPress={() => router.push("/plan")} fullWidth />
         <View style={{ height: spacing.sm }} />
-        <PrimaryButton title="Weekly Report" onPress={() => router.push("/report")} fullWidth />
-        <View style={{ height: spacing.sm }} />
+  <PrimaryButton title="Weekly Report" onPress={() => router.push("/report")} fullWidth />
+  <View style={{ height: spacing.sm }} />
+  <PrimaryButton title="Mood & Stress Tracker" onPress={() => router.push("/moodTracker")} fullWidth />
+  <View style={{ height: spacing.sm }} />
+  <PrimaryButton title="Wellness Report" onPress={() => router.push("/wellnessReport")} fullWidth />
+  <View style={{ height: spacing.sm }} />
+  <PrimaryButton title="Biometric Login" onPress={() => router.push("/biometricLogin")} variant="secondary" fullWidth />
+  <View style={{ height: spacing.sm }} />
   <PrimaryButton title="Reminder Settings" onPress={() => router.push("/notifications")} variant="secondary" fullWidth />
   <View style={{ height: spacing.sm }} />
   <PrimaryButton title="Settings" onPress={() => router.push("/settings")} variant="secondary" fullWidth />
