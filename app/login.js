@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, TextInput, StyleSheet, SafeAreaView } from "react-native";
+import * as LocalAuthentication from "expo-local-authentication";
 import { useRouter } from "expo-router";
 import { auth } from "../firebase/firebaseConfig";
 import { signInWithEmailAndPassword } from "firebase/auth";
@@ -21,6 +22,30 @@ export default function LoginScreen() {
     }
   };
 
+  const handleBiometricLogin = async () => {
+    setError("");
+    try {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const enrolled = await LocalAuthentication.isEnrolledAsync();
+      if (!hasHardware || !enrolled) {
+        setError("Biometric auth not available or not enrolled on this device.");
+        return;
+      }
+      const res = await LocalAuthentication.authenticateAsync({ promptMessage: "Login with biometrics" });
+      if (!res.success) {
+        setError("Biometric authentication failed.");
+        return;
+      }
+      if (auth.currentUser) {
+        router.replace("/");
+      } else {
+        setError("No existing session. Please sign in once with email/password to enable biometric quick login.");
+      }
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.card}>
@@ -30,6 +55,8 @@ export default function LoginScreen() {
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <PrimaryButton title="Login" onPress={handleLogin} fullWidth />
         <View style={{ height: spacing.sm }} />
+  <PrimaryButton title="Login with Biometrics" onPress={handleBiometricLogin} variant="secondary" fullWidth />
+  <View style={{ height: spacing.sm }} />
         <PrimaryButton title="Sign Up" onPress={() => router.replace("/signup")} variant="secondary" fullWidth />
       </View>
     </SafeAreaView>

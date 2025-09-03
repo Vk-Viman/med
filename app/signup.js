@@ -30,6 +30,10 @@ export default function SignupScreen() {
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <PrimaryButton title="Create account" onPress={handleSignup} fullWidth />
         <View style={{ height: spacing.sm }} />
+        <Text style={{ textAlign: "center", color: "#607D8B", marginBottom: spacing.sm }}>
+          Tip: After your first login, you can use biometric quick login on this device.
+        </Text>
+        <View style={{ height: spacing.sm }} />
         <PrimaryButton title="Back to Login" onPress={() => router.replace("/login")} variant="secondary" fullWidth />
       </View>
     </SafeAreaView>
