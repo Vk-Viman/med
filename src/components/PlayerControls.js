@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, StyleSheet } from "react-native";
+import { View, StyleSheet, Alert, Platform, ToastAndroid } from "react-native";
 import GlowingPlayButton from "./GlowingPlayButton";
 import Slider from "@react-native-community/slider";
 import { useAudioPlayer } from "expo-audio";
@@ -15,6 +15,14 @@ export default function PlayerControls({ meditation, backgroundSound }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(1);
+
+  const notifySaved = (elapsedSec) => {
+    const minutes = Math.round((elapsedSec / 60) * 10) / 10;
+    const msg = `Session saved: ${minutes}m`;
+    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+    if (Platform.OS === "android") ToastAndroid.show(msg, ToastAndroid.SHORT);
+    else Alert.alert("Saved", msg);
+  };
 
   // Update the audio source whenever the selected meditation changes
   useEffect(() => {
@@ -38,6 +46,7 @@ export default function PlayerControls({ meditation, backgroundSound }) {
                 title: meditation?.title || "session",
               });
               await updateUserStats(auth.currentUser.uid, { minutesDelta: Math.round(elapsedSec / 60) });
+              notifySaved(elapsedSec);
             } catch {}
           }
         }
@@ -93,6 +102,7 @@ export default function PlayerControls({ meditation, backgroundSound }) {
               title: meditation?.title || "session",
             });
             await updateUserStats(auth.currentUser.uid, { minutesDelta: Math.round(elapsedSec / 60) });
+            notifySaved(elapsedSec);
           } catch {}
         }
       }
