@@ -1,5 +1,7 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, Dimensions, Alert } from "react-native";
+import GradientBackground from "../src/components/GradientBackground";
+import Card from "../src/components/Card";
 import { auth } from "../firebase/firebaseConfig";
 import { collection, query, where, getDocs, Timestamp } from "firebase/firestore";
 import { db } from "../firebase/firebaseConfig";
@@ -42,31 +44,35 @@ export default function WeeklyReportScreen() {
   const labels = ["-6", "-5", "-4", "-3", "-2", "-1", "Today"];
 
   return (
+    <GradientBackground>
     <View style={styles.container}>
       <Text style={styles.title}>Weekly Report</Text>
-      <LineChart
-        data={{ labels, datasets: [{ data: minutesByDay }] }}
-        width={screenWidth}
-        height={220}
-        yAxisSuffix="m"
-        chartConfig={{
-          backgroundColor: "#E1F5FE",
-          backgroundGradientFrom: "#E1F5FE",
-          backgroundGradientTo: "#B3E5FC",
-          decimalPlaces: 0,
-          color: (opacity = 1) => `rgba(2, 136, 209, ${opacity})`,
-          labelColor: () => "#01579B",
-        }}
-        bezier
-        style={{ borderRadius: 8 }}
-      />
+      <Card>
+        <LineChart
+          data={{ labels, datasets: [{ data: minutesByDay }] }}
+          width={screenWidth}
+          height={220}
+          yAxisSuffix="m"
+          chartConfig={{
+            backgroundColor: "transparent",
+            backgroundGradientFrom: "#FFFFFF",
+            backgroundGradientTo: "#FFFFFF",
+            decimalPlaces: 0,
+            color: (opacity = 1) => `rgba(2, 136, 209, ${opacity})`,
+            labelColor: () => "#01579B",
+          }}
+          bezier
+          style={{ borderRadius: 12 }}
+        />
+      </Card>
       <Text style={styles.total}>Total minutes: {minutesByDay.reduce((a, b) => a + b, 0)}</Text>
-    </View>
+  </View>
+  </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 12, backgroundColor: "#E1F5FE" },
+  container: { flex: 1, padding: 12 },
   title: { fontSize: 22, fontWeight: "bold", color: "#0288D1", marginBottom: 8 },
   total: { marginTop: 12, fontWeight: "600", color: "#01579B" },
 });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+﻿import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet, Button, Alert } from "react-native";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { db, auth } from "../firebase/firebaseConfig";
@@ -108,7 +108,7 @@ export default function PlanScreen() {
         savedPlan ? (
           <View style={styles.savedCard}>
             <Text style={styles.savedTitle}>Your saved plan</Text>
-            <Text style={styles.savedText}>{savedPlan.title} • {savedPlan.minutes} min</Text>
+            <Text style={styles.savedText}>{savedPlan.title} â€¢ {savedPlan.minutes} min</Text>
             {lastUpdated && (
               <Text style={styles.updatedText}>
                 Last updated: {new Date(lastUpdated).toLocaleString()}
@@ -124,7 +124,7 @@ export default function PlanScreen() {
       <OptionRow label="Goal" options={choices.goal} value={goal} onChange={setGoal} />
 
       {plan ? (
-        <Text style={styles.plan}>Suggested: {plan.title} • {plan.minutes} min</Text>
+        <Text style={styles.plan}>Suggested: {plan.title} â€¢ {plan.minutes} min</Text>
       ) : (
         <Text style={styles.planPlaceholder}>Answer to see your plan</Text>
       )}

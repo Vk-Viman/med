@@ -1,4 +1,4 @@
-import { Stack } from "expo-router";
+﻿import { Stack } from "expo-router";
 import { ThemeProvider } from "../src/theme/ThemeProvider";
 
 export default function Layout() {
@@ -9,7 +9,8 @@ export default function Layout() {
         <Stack.Screen name="splash" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ title: "Login" }} />
         <Stack.Screen name="signup" options={{ title: "Sign Up" }} />
-        <Stack.Screen name="index" options={{ title: "Home" }} />
+  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+  <Stack.Screen name="index" options={{ title: "Home" }} />
     <Stack.Screen name="meditation" options={{ title: "Meditation" }} />
         <Stack.Screen name="plan" options={{ title: "Meditation Plan" }} />
         <Stack.Screen name="report" options={{ title: "Weekly Report" }} />

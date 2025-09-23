@@ -1,5 +1,6 @@
-import React from "react";
-import { View, Text, StyleSheet, Alert, SafeAreaView } from "react-native";
+﻿import React from "react";
+import { View, Text, StyleSheet, Alert } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import PrimaryButton from "../src/components/PrimaryButton";

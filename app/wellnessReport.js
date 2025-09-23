@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, FlatList } from "react-native";
+import GradientBackground from "../src/components/GradientBackground";
 import { db, auth } from "../firebase/firebaseConfig";
 import { collection, query, orderBy, getDocs } from "firebase/firestore";
 import { LineChart } from "react-native-chart-kit";
 import CryptoJS from "crypto-js";
 import { Dimensions } from "react-native";
+import Card from "../src/components/Card";
 
 export default function WellnessReport() {
   const [entries, setEntries] = useState([]);
@@ -43,28 +45,31 @@ export default function WellnessReport() {
     <View>
       <Text style={styles.heading}>Wellness Report</Text>
       {entries.length > 0 ? (
-        <LineChart
-          data={chartData}
-          width={Dimensions.get("window").width - 32}
-          height={180}
-          chartConfig={{
-            backgroundColor: "#E1F5FE",
-            backgroundGradientFrom: "#E1F5FE",
-            backgroundGradientTo: "#B3E5FC",
-            color: (opacity = 1) => `rgba(2, 136, 209, ${opacity})`,
-            labelColor: (opacity = 1) => `rgba(1, 87, 155, ${opacity})`,
-            strokeWidth: 2,
-            propsForDots: { r: "4", strokeWidth: "2", stroke: "#0288D1" },
-          }}
-          bezier
-          style={{ marginVertical: 12, borderRadius: 12 }}
-        />
+        <Card>
+          <LineChart
+            data={chartData}
+            width={Dimensions.get("window").width - 32}
+            height={180}
+            chartConfig={{
+              backgroundColor: "transparent",
+              backgroundGradientFrom: "#FFFFFF",
+              backgroundGradientTo: "#FFFFFF",
+              color: (opacity = 1) => `rgba(2, 136, 209, ${opacity})`,
+              labelColor: (opacity = 1) => `rgba(1, 87, 155, ${opacity})`,
+              strokeWidth: 2,
+              propsForDots: { r: "4", strokeWidth: "2", stroke: "#0288D1" },
+            }}
+            bezier
+            style={{ borderRadius: 12 }}
+          />
+        </Card>
       ) : <Text style={styles.label}>No data yet.</Text>}
       <Text style={styles.subheading}>Journal Entries</Text>
     </View>
   );
 
   return (
+    <GradientBackground>
     <FlatList
       style={styles.container}
       data={entries}
@@ -78,12 +83,13 @@ export default function WellnessReport() {
         </View>
       )}
       contentContainerStyle={{ paddingBottom: 24 }}
-    />
+  />
+  </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: "#E1F5FE" },
+  container: { flex: 1, padding: 16 },
   heading: { fontSize: 22, fontWeight: "700", color: "#01579B", marginBottom: 12 },
   subheading: { fontSize: 18, fontWeight: "600", color: "#0277BD", marginBottom: 8 },
   label: { fontSize: 16, color: "#0277BD", marginBottom: 12 },

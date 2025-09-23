@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import { View, Button, StyleSheet } from "react-native";
 import { useAudioPlayer } from "expo-audio";
 import * as Haptics from "expo-haptics";

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+﻿import React, { useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import MeditationList from "./components/MeditationList";
 import PlayerControls from "./components/PlayerControls";

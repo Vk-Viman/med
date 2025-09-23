@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+﻿import React, { useState } from "react";
 import { View, Text, StyleSheet, Alert } from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
 import PrimaryButton from "../src/components/PrimaryButton";

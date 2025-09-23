@@ -1,5 +1,7 @@
-import React, { useEffect } from "react";
+﻿import React, { useEffect } from "react";
 import { View, Text, StyleSheet, Image } from "react-native";
+import * as Animatable from "react-native-animatable";
+import GradientBackground from "../src/components/GradientBackground";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -20,14 +22,25 @@ export default function SplashScreen() {
   }, []);
 
   return (
-    <View style={styles.container}>
-      <Image source={require("../assets/splash-icon.png")} style={styles.logo} />
-      <Text style={styles.title}>Calm Space</Text>
-    </View>
+    <GradientBackground>
+      <View style={styles.container}>
+        <Animatable.Image
+          animation="fadeIn"
+          duration={800}
+          delay={200}
+          source={require("../assets/splash-icon.png")}
+          style={styles.logo}
+          resizeMode="contain"
+        />
+        <Animatable.Text animation="fadeInUp" duration={800} delay={300} style={styles.title}>
+          Calm Space
+        </Animatable.Text>
+      </View>
+    </GradientBackground>
   );
 }
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#B3E5FC" },
+  container: { flex: 1, justifyContent: "center", alignItems: "center" },
   logo: { width: 120, height: 120, marginBottom: 20 },
   title: { fontSize: 28, fontWeight: "bold", color: "#01579B" }
 });

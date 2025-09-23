@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+﻿import React, { useState } from "react";
 // Polyfill global.crypto for crypto-js in Expo Go using expo-crypto
 import * as ExpoCrypto from "expo-crypto";
 // ensure getRandomValues exists (react-native-get-random-values also patches)
@@ -11,6 +11,7 @@ if (typeof global === "object" && (typeof global.crypto === "undefined" || typeo
   };
 }
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert } from "react-native";
+import GradientBackground from "../src/components/GradientBackground";
 import Slider from "@react-native-community/slider";
 import { useRouter } from "expo-router";
 import { db, auth } from "../firebase/firebaseConfig";
@@ -37,10 +38,10 @@ try {
 } catch {}
 
 const moods = [
-  { key: "happy", emoji: "😊" },
-  { key: "sad", emoji: "😢" },
-  { key: "calm", emoji: "😌" },
-  { key: "stressed", emoji: "😣" },
+  { key: "happy", emoji: "ðŸ˜Š" },
+  { key: "sad", emoji: "ðŸ˜¢" },
+  { key: "calm", emoji: "ðŸ˜Œ" },
+  { key: "stressed", emoji: "ðŸ˜£" },
 ];
 
 export default function MoodTracker() {
@@ -76,6 +77,7 @@ export default function MoodTracker() {
   };
 
   return (
+    <GradientBackground>
     <View style={styles.container}>
       <Text style={styles.heading}>How are you feeling?</Text>
       <View style={styles.moodRow}>
@@ -106,11 +108,12 @@ export default function MoodTracker() {
       />
       <PrimaryButton title="Save" onPress={saveEntry} disabled={loading} fullWidth />
     </View>
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, backgroundColor: "#E1F5FE" },
+  container: { flex: 1, padding: 24 },
   heading: { fontSize: 22, fontWeight: "700", color: "#01579B", marginBottom: 18 },
   moodRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 18 },
   moodBtn: { padding: 16, borderRadius: 12, backgroundColor: "#B3E5FC" },
