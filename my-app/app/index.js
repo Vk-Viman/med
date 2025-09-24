@@ -1,5 +1,5 @@
-﻿import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Pressable, ScrollView } from "react-native";
+﻿import React, { useEffect, useState, useRef } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Pressable, ScrollView, RefreshControl, Animated } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import PrimaryButton from "../src/components/PrimaryButton";
@@ -11,6 +11,8 @@ import Card from "../src/components/Card";
 import { getUserProfile } from "../src/services/userProfile";
 import { getMoodSummary } from "../src/services/moodEntries";
 import * as Haptics from 'expo-haptics';
+import LottieView from 'lottie-react-native';
+import { useFocusEffect } from 'expo-router';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -19,6 +21,10 @@ export default function HomeScreen() {
   const [displayName, setDisplayName] = useState('');
   const [avatarB64, setAvatarB64] = useState(null);
   const [summary, setSummary] = useState({ latest:null, streak:0 });
+  const [refreshing, setRefreshing] = useState(false);
+  const pullY = useRef(new Animated.Value(0)).current; // still track if needed later
+  const [pullProgress, setPullProgress] = useState(0); // 0..1
+  const [showToast, setShowToast] = useState(false);
 
   const greeting = () => {
     const h = new Date().getHours();
@@ -28,21 +34,41 @@ export default function HomeScreen() {
     return 'Good evening';
   };
 
-  useEffect(()=>{
-    let mounted = true;
-    (async()=>{
-      try {
-        const prof = await getUserProfile();
-        if(mounted && prof){ setDisplayName(prof.displayName || ''); if(prof.avatarB64) setAvatarB64(prof.avatarB64); }
-      } catch {}
-      try {
-        const s = await getMoodSummary({ streakLookbackDays:14 });
-        if(mounted) setSummary(s);
-      } catch {}
-      if(mounted) setLoading(false);
-    })();
-    return ()=>{ mounted=false; };
-  },[]);
+  const loadData = async (opts={ showSpinner:true }) => {
+    let mounted = true; // local flag for safety inside nested awaits
+    if(opts.showSpinner) setLoading(true);
+    try {
+      const prof = await getUserProfile();
+      if(prof){ setDisplayName(prof.displayName || ''); if(prof.avatarB64) setAvatarB64(prof.avatarB64); }
+    } catch {}
+    try {
+      const s = await getMoodSummary({ streakLookbackDays:14 });
+      setSummary(s);
+    } catch {}
+    if(opts.showSpinner) setLoading(false);
+    return () => { mounted = false; };
+  };
+
+  useEffect(()=>{ loadData(); },[]);
+
+  const triggerToast = () => {
+    setShowToast(true);
+    setTimeout(()=> setShowToast(false), 1800);
+  };
+
+  const onRefresh = async () => {
+    if(refreshing) return;
+    setRefreshing(true);
+    impact('medium');
+    await loadData({ showSpinner:false });
+    setRefreshing(false);
+    triggerToast();
+  };
+
+  useFocusEffect(React.useCallback(()=>{
+    // silent refresh when returning to screen
+    loadData({ showSpinner:false });
+  },[]));
 
   const moodEmoji = (m) => {
     if(m == null) return '🌀';
@@ -82,7 +108,36 @@ export default function HomeScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} colors={[theme.primary]} progressViewOffset={10} />}
+          onScroll={(e)=>{
+            const y = e.nativeEvent.contentOffset.y;
+            if(y < 0){
+              // convert negative drag (e.g., -120..0) -> progress 1..0
+              const prog = Math.min(1, Math.max(0, (-y)/120));
+              setPullProgress(prog);
+            } else if(pullProgress !== 0){
+              setPullProgress(0);
+            }
+          }}
+          scrollEventThrottle={16}
         >
+        <View style={styles.pullAnimWrap} pointerEvents='none'>
+          {(!refreshing) && (
+            <LottieView
+              source={require('../assets/animations/pullRefresh.json')}
+              style={styles.pullAnim}
+              progress={pullProgress}
+            />
+          )}
+          {refreshing && (
+            <LottieView
+              source={require('../assets/animations/pullRefresh.json')}
+              style={styles.pullAnim}
+              autoPlay
+              loop
+            />
+          )}
+        </View>
         <View style={styles.header}>
           <TouchableOpacity accessibilityLabel="Toggle theme" onPress={toggle}>
             <Ionicons name={mode === 'light' ? 'sunny-outline' : 'moon-outline'} size={22} color={theme.textMuted} />
@@ -174,6 +229,12 @@ export default function HomeScreen() {
         </View>
         <View style={{ height: spacing.xl * 2 }} />
         </ScrollView>
+        {showToast && (
+          <View style={[styles.toast,{ backgroundColor: theme.card }]}> 
+            <Ionicons name='checkmark-circle-outline' size={18} color={theme.primary} />
+            <Text style={[styles.toastText,{ color: theme.text }]}>Updated</Text>
+          </View>
+        )}
       </SafeAreaView>
     </GradientBackground>
   );
@@ -181,6 +242,10 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container:{ flex:1, paddingHorizontal: spacing.lg, paddingTop: spacing.lg },
   scrollContent:{ paddingBottom: spacing.xxl ?? 96 },
+  pullAnimWrap:{ position:'absolute', top:-10, left:0, right:0, alignItems:'center', height:80 },
+  pullAnim:{ width:80, height:80, opacity:0.9 },
+  toast:{ position:'absolute', bottom:28, alignSelf:'center', flexDirection:'row', alignItems:'center', paddingHorizontal:14, paddingVertical:10, borderRadius:20, gap:8, shadowColor:'#000', shadowOpacity:0.15, shadowRadius:8, shadowOffset:{ width:0, height:3 }, elevation:4 },
+  toastText:{ fontSize:13, fontWeight:'700' },
   header:{ flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom: spacing.lg },
   avatarSmall:{ width:34, height:34, borderRadius:17, backgroundColor:'#BBDEFB' },
   greetWrap:{ marginBottom: spacing.md },

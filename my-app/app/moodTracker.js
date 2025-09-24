@@ -93,6 +93,7 @@ export default function MoodTracker() {
     return 'Overwhelmed';
   })();
   const [note, setNote] = useState("");
+  const [showSuccess, setShowSuccess] = useState(false);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [showPreview, setShowPreview] = useState(false);
   const MAX_NOTE = 500;
@@ -189,19 +190,38 @@ export default function MoodTracker() {
     setMood(OTHER_KEY);
   };
 
+  const selectedMoodLabel = () => {
+    if(!mood) return 'No mood selected';
+    if(mood === OTHER_KEY) return 'Custom mood';
+    const found = baseMoods.find(m=> m.key===mood);
+    return found? found.label : 'Mood';
+  };
+
+  const stressCoaching = (() => {
+    const v = Number(stress) || 0;
+    if (v <= 1) return 'Great baseline. Keep it up.';
+    if (v <= 3) return 'Breathing steady. Stay present.';
+    if (v <= 5) return 'Manageable. A short stretch helps.';
+    if (v <= 7) return 'Try a 2-min breathing break.';
+    if (v <= 8) return 'High load. Pause and reset soon.';
+    return 'Very high. Do a calming exercise.';
+  })();
+
   const saveEntry = async () => {
-    if (!mood) return Alert.alert("Select your mood");
+    if (!mood) return; // disabled state prevents
     setLoading(true);
     try {
       await flushPersistence();
       await createMoodEntry({ mood, stress, note });
-      await flushQueue(); // attempt to send any queued operations
+      await flushQueue();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setShowSuccess(true);
+      setTimeout(()=> setShowSuccess(false), 1600);
       setMood(null); setStress(5); setNote("");
-      Alert.alert("Saved", "Your entry was saved.");
-      router.back();
+      setTimeout(()=> router.back(), 900);
     } catch (e) {
-      Alert.alert("Error", e.message);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Save Failed', e.message || 'Unknown error');
     }
     setLoading(false);
   };
@@ -209,7 +229,8 @@ export default function MoodTracker() {
   return (
     <GradientBackground>
     <View style={styles.container}>
-      <Text style={styles.heading}>How are you feeling?</Text>
+      <Text style={styles.heading} accessibilityRole='header'>How are you feeling?</Text>
+      <Text style={styles.subheading}>Tap a mood, adjust stress, optionally journal.</Text>
       <View style={styles.moodRow}>
         {moods.map(m => {
           const scale = getScale(m.key);
@@ -220,9 +241,15 @@ export default function MoodTracker() {
               onLongPress={() => onLongPress(m)}
               delayLongPress={300}
               activeOpacity={0.85}
+              accessibilityRole='button'
+              accessibilityLabel={`${m.label || 'Other'} mood option`}
+              {...(mood === m.key ? { accessibilityState:{ selected:true } } : {})}
             >
               <Animated.View style={[styles.moodBtn, { width: btnSize, height: btnSize, borderRadius: btnSize/2 }, mood === m.key && styles.selected, { transform: [{ scale }] }]}>            
                 <Text style={[styles.mood, { fontSize, lineHeight: fontSize + 4 }]}>{m.emoji}</Text>
+                {m.key === OTHER_KEY && mood === OTHER_KEY && (
+                  <View style={styles.editBadge}><Text style={styles.editBadgeText}>✎</Text></View>
+                )}
               </Animated.View>
               {tooltip && tooltip.key === m.key && (
                 <Animated.View style={[styles.tooltip, {
@@ -236,10 +263,11 @@ export default function MoodTracker() {
           );
         })}
       </View>
+      <Text style={styles.selectedMood} accessibilityLiveRegion='polite'>Selected: {selectedMoodLabel()}</Text>
       <View style={styles.stressHeaderRow}>
-        <Text style={styles.label}>Stress Level: {stress}</Text>
+        <Text style={styles.label}>Stress Level: {Number(stress)}</Text>
         <Animated.View style={[styles.stressAura,{ backgroundColor: stressColor }]}> 
-          <Text style={styles.stressAuraText}>{stress}</Text>
+          <Text style={styles.stressAuraText}>{Number(stress)}</Text>
         </Animated.View>
       </View>
       <View style={styles.sliderBlock}>
@@ -267,6 +295,8 @@ export default function MoodTracker() {
             minimumTrackTintColor="transparent"
             maximumTrackTintColor="transparent"
             thumbTintColor="#FFFFFF"
+            accessibilityLabel='Stress level slider'
+            accessibilityHint='Adjust to record current stress from 0 to 10'
           />
         </LinearGradient>
         <View style={styles.ticksRow}>
@@ -275,6 +305,7 @@ export default function MoodTracker() {
           ))}
         </View>
         <Animated.Text style={[styles.qualitative,{ color: stressColor }]}>{qualitative}</Animated.Text>
+        <Animated.Text style={styles.coaching} accessibilityLiveRegion='polite'>{stressCoaching}</Animated.Text>
       </View>
       <View style={styles.noteHeaderRow}>
         <Text style={styles.label}>Journal Note</Text>
@@ -282,10 +313,13 @@ export default function MoodTracker() {
           <Text style={styles.counter}>{note.length}/{MAX_NOTE}</Text>
           <View style={styles.previewToggle}>
             <Text style={styles.previewLabel}>Preview</Text>
-            <Switch value={showPreview} onValueChange={setShowPreview} />
+            <Switch value={showPreview} onValueChange={setShowPreview} accessibilityLabel='Toggle markdown preview' />
           </View>
         </View>
       </View>
+      {!note.length && !showPreview && (
+        <Text style={styles.noteHelper}>Optional: capture context, triggers, or wins. Use buttons above for *italic* and **bold**.</Text>
+      )}
       {!showPreview && (
         <>
           <View style={styles.formatBar}>
@@ -361,7 +395,12 @@ export default function MoodTracker() {
           <MarkdownPreview text={note} />
         </View>
       )}
-      <PrimaryButton title="Save" onPress={saveEntry} disabled={loading} fullWidth />
+      <PrimaryButton title={mood? (loading? 'Saving...' : 'Save') : 'Pick a mood to save'} onPress={saveEntry} disabled={!mood || loading} fullWidth />
+      {showSuccess && (
+        <View style={styles.toastSuccess} pointerEvents='none'>
+          <Text style={styles.toastSuccessText}>Entry Saved ✓</Text>
+        </View>
+      )}
 
       <Modal visible={showPicker} transparent animationType="fade" onRequestClose={() => setShowPicker(false)}>
         <View style={styles.modalBackdrop}>
@@ -390,8 +429,10 @@ export default function MoodTracker() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 24 },
-  heading: { fontSize: 22, fontWeight: "700", color: "#01579B", marginBottom: 18 },
+  heading: { fontSize: 22, fontWeight: "800", color: "#01579B", marginBottom: 4 },
+  subheading:{ fontSize:13, color:'#0277BD', marginBottom:16, fontWeight:'600' },
   moodRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 18 },
+  selectedMood:{ fontSize:12, fontWeight:'600', color:'#01579B', marginTop:-10, marginBottom:16 },
   moodBtn: {
     padding: 4,
     backgroundColor: "#FFFFFF",
@@ -407,6 +448,8 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
   },
   selected: { backgroundColor: "#B3E5FC", borderColor: "#0288D1" },
+  editBadge:{ position:'absolute', top:4, right:4, backgroundColor:'#0288D1', width:18, height:18, borderRadius:9, alignItems:'center', justifyContent:'center' },
+  editBadgeText:{ color:'#fff', fontSize:10, fontWeight:'700' },
   mood: { includeFontPadding: false, textAlignVertical: "center" },
   tooltip: { position: 'absolute', top: -30, left: '50%', transform: [{ translateX: -30 }], backgroundColor: '#01579B', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
   tooltipText: { color: '#fff', fontSize: 12, fontWeight: '600' },
@@ -421,7 +464,9 @@ const styles = StyleSheet.create({
   stressAura:{ width:36, height:36, borderRadius:18, alignItems:'center', justifyContent:'center', shadowColor:'#000', shadowOpacity:0.15, shadowRadius:6, shadowOffset:{width:0,height:2}, elevation:3 },
   stressAuraText:{ color:'#fff', fontWeight:'700' },
   qualitative:{ marginTop:6, textAlign:'center', fontSize:14, fontWeight:'600' },
+  coaching:{ marginTop:4, textAlign:'center', fontSize:11, fontWeight:'600', color:'#01579B', opacity:0.85 },
   input: { backgroundColor: "#fff", borderRadius: 8, padding: 12, minHeight: 60, marginBottom: 18 },
+  noteHelper:{ fontSize:11, color:'#0277BD', marginBottom:8, fontWeight:'500' },
   noteHeaderRow:{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-end' },
   noteMetaRow:{ alignItems:'flex-end' },
   counter:{ fontSize:12, color:'#0277BD', textAlign:'right' },
@@ -436,4 +481,6 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 12, color: '#01579B' },
   emojiCell: { width: 48, height: 48, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginVertical: 6 },
   emojiCellText: { fontSize: 30 },
+  toastSuccess:{ position:'absolute', bottom:30, alignSelf:'center', backgroundColor:'#FFFFFFEE', paddingHorizontal:20, paddingVertical:12, borderRadius:24, shadowColor:'#000', shadowOpacity:0.15, shadowRadius:8, shadowOffset:{width:0,height:3}, elevation:4 },
+  toastSuccessText:{ fontSize:14, fontWeight:'700', color:'#01579B' }
 });

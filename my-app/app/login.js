@@ -65,6 +65,7 @@ export default function LoginScreen() {
           <Ionicons name="lock-closed-outline" size={18} color="#5C6BC0" style={styles.inputIcon} />
           <TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry />
         </View>
+        <Text onPress={()=> router.push('/forgotPassword')} style={{ alignSelf:'flex-end', marginBottom: spacing.sm, color:'#1565C0', fontSize:12, fontWeight:'600' }}>Forgot Password?</Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <PrimaryButton title="Login" onPress={async () => { try { await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}; handleLogin(); }} fullWidth />
         <View style={{ height: spacing.sm }} />

@@ -5,10 +5,11 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import PrimaryButton from "../src/components/PrimaryButton";
 import { auth } from "../firebase/firebaseConfig";
-import { signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword, deleteUser } from "firebase/auth";
+import { signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword, deleteUser, sendEmailVerification } from "firebase/auth";
 import { colors, spacing, radius, shadow } from "../src/theme";
-import { exportAllMoodEntries, buildMoodCSV, deleteAllMoodEntries, getLocalOnlyMode, setLocalOnlyMode } from "../src/services/moodEntries";
+import { exportAllMoodEntries, buildMoodCSV, buildMoodMarkdown, getLocalOnlyMode, setLocalOnlyMode, deleteAllMoodEntries, escrowEncryptDeviceKey, escrowDecryptDeviceKey } from "../src/services/moodEntries";
 import { getUserProfile, updateUserProfile, ensureUserProfile, deleteUserProfile } from '../src/services/userProfile';
+import { bumpSessionEpoch } from '../src/services/userProfile';
 import * as ImagePicker from 'expo-image-picker';
 import { DeviceEventEmitter as RNEmitter } from 'react-native';
 
@@ -39,13 +40,69 @@ export default function SettingsScreen() {
   const [pwFeedback, setPwFeedback] = useState('');
   const [themeMode, setThemeModeLocal] = useState('light');
   const [lastRemoteWipe, setLastRemoteWipe] = useState(null);
+  const [emailVerified, setEmailVerified] = useState(true);
+  const [sendingVerify, setSendingVerify] = useState(false);
+  const [refreshingVerify, setRefreshingVerify] = useState(false);
+  const [analyticsOptOut, setAnalyticsOptOut] = useState(false);
+  const [termsAcceptedVersion, setTermsAcceptedVersion] = useState(null);
+  const [privacyAcceptedAt, setPrivacyAcceptedAt] = useState(null);
+  const [showKeyEscrow, setShowKeyEscrow] = useState(false);
+  const [passphrase, setPassphrase] = useState('');
+  const [confirmPassphrase, setConfirmPassphrase] = useState('');
+  const [escrowing, setEscrowing] = useState(false);
+  const [importPassphrase, setImportPassphrase] = useState('');
+  const [importData, setImportData] = useState(''); // JSON blob pasted
+  const [importing, setImporting] = useState(false);
+
+  // ===== Key Escrow Handlers =====
+  const handleCreateEscrow = async () => {
+    if(escrowing) return; if(!passphrase || !confirmPassphrase){ Alert.alert('Escrow','Enter and confirm a passphrase.'); return; }
+    if(passphrase !== confirmPassphrase){ Alert.alert('Escrow','Passphrases do not match.'); return; }
+    if(passphrase.length < 6){ Alert.alert('Escrow','Use a passphrase at least 6 characters.'); return; }
+    try {
+      setEscrowing(true);
+      const wrapped = await escrowEncryptDeviceKey(passphrase);
+      // Store wrapped escrow blob in profile
+      try { await updateUserProfile({ keyEscrow: wrapped }); } catch{}
+      setPassphrase(''); setConfirmPassphrase('');
+      Alert.alert('Escrow','Escrow stored in profile. Keep your passphrase safe.');
+    } catch(e){ Alert.alert('Escrow Failed', e.message); }
+    finally { setEscrowing(false); }
+  };
+
+  const handleExportEscrow = async () => {
+    try {
+      const prof = await getUserProfile();
+      if(!prof?.keyEscrow){ Alert.alert('Escrow','No escrow stored yet.'); return; }
+      const jsonStr = JSON.stringify({ type:'keyEscrow.v1', data: prof.keyEscrow }, null, 2);
+      await Share.share({ message: jsonStr });
+    } catch(e){ Alert.alert('Export Failed', e.message); }
+  };
+
+  const handleImportEscrow = async () => {
+    if(importing) return; if(!importData || !importPassphrase){ Alert.alert('Escrow','Paste escrow JSON and passphrase.'); return; }
+    try {
+      setImporting(true);
+      let parsed;
+      try { parsed = JSON.parse(importData); } catch { throw new Error('Invalid JSON'); }
+      if(parsed?.type !== 'keyEscrow.v1' || !parsed.data) throw new Error('Unsupported escrow blob');
+      const ok = await escrowDecryptDeviceKey(parsed.data, importPassphrase);
+      if(ok){
+        Alert.alert('Escrow','Escrow import successful. Encryption key restored for this device.');
+        setImportData(''); setImportPassphrase('');
+      } else {
+        Alert.alert('Escrow','Incorrect passphrase or corrupt escrow.');
+      }
+    } catch(e){ Alert.alert('Import Failed', e.message); }
+    finally { setImporting(false); }
+  };
 
   useEffect(()=>{ (async()=>{
     setLocalOnly(await getLocalOnlyMode());
     try{ const v = await AsyncStorage.getItem(AUTO_LOCK_KEY); if(v) setAutoLock(Number(v)); }catch{}
     try{ const b = await AsyncStorage.getItem(BIOMETRIC_PREF_KEY); if(b!==null) setBiometricPref(b==='1'); }catch{}
     // Load profile
-  try { await ensureUserProfile(); const prof = await getUserProfile(); if(prof){ setDisplayName(prof.displayName || ''); if(typeof prof.biometricEnabled === 'boolean') setBiometricPref(prof.biometricEnabled); if(prof.avatarB64) setAvatarB64(prof.avatarB64); if(prof.themeMode==='dark'||prof.themeMode==='light'){ setThemeModeLocal(prof.themeMode); RNEmitter.emit('theme-mode-sync', { mode: prof.themeMode }); } } } catch {}
+  try { await ensureUserProfile(); const prof = await getUserProfile(); if(prof){ setDisplayName(prof.displayName || ''); if(typeof prof.biometricEnabled === 'boolean') setBiometricPref(prof.biometricEnabled); if(prof.avatarB64) setAvatarB64(prof.avatarB64); if(prof.themeMode==='dark'||prof.themeMode==='light'){ setThemeModeLocal(prof.themeMode); RNEmitter.emit('theme-mode-sync', { mode: prof.themeMode }); } if(typeof prof.analyticsOptOut === 'boolean') setAnalyticsOptOut(prof.analyticsOptOut); if('termsAcceptedVersion' in prof) setTermsAcceptedVersion(prof.termsAcceptedVersion); if('privacyAcceptedAt' in prof) setPrivacyAcceptedAt(prof.privacyAcceptedAt); } } catch {}
   try { const ts = await AsyncStorage.getItem('last_remote_wipe_ts'); if(ts) setLastRemoteWipe(Number(ts)); } catch {}
   })(); },[]);
 
@@ -83,6 +140,9 @@ export default function SettingsScreen() {
       if(format==='json'){
         const jsonStr = JSON.stringify({ exportedAt:new Date().toISOString(), count:rows.length, entries:rows }, null, 2);
         await Share.share({ message: jsonStr });
+      } else if(format==='md') {
+        const md = buildMoodMarkdown(rows);
+        await Share.share({ message: md });
       } else {
         const csv = buildMoodCSV(rows);
         await Share.share({ message: csv });
@@ -154,7 +214,11 @@ export default function SettingsScreen() {
   useEffect(()=>{ const { score, feedback } = evaluatePassword(newPass); setPwScore(score); setPwFeedback(feedback); }, [newPass]);
 
   // ===== Password Change =====
+  const RATE_WINDOW_MS = 5000; let lastSensitive = 0;
+  function rateGate(){ const now = Date.now(); if(now - lastSensitive < RATE_WINDOW_MS){ Alert.alert('Please Wait','Try again in a few seconds.'); return false; } lastSensitive = now; return true; }
+
   const handleChangePassword = async () => {
+    if(!rateGate()) return;
     if(changingPass) return;
     if(!currentPass || !newPass){ Alert.alert('Password','Fill all fields.'); return; }
     if(newPass !== confirmPass){ Alert.alert('Password','New passwords do not match.'); return; }
@@ -197,12 +261,28 @@ export default function SettingsScreen() {
     ]);
   };
 
+  // ===== Consent Handling =====
+  const acceptTermsNow = async () => { try { const version = 1; const ts = new Date().toISOString(); await updateUserProfile({ termsAcceptedVersion: version, privacyAcceptedAt: ts }); setTermsAcceptedVersion(version); setPrivacyAcceptedAt(ts); Alert.alert('Consent','Terms accepted.'); } catch(e){ Alert.alert('Error', e.message); } };
+
+  const consentItems = termsAcceptedVersion ? [ { key:'termsInfo', type:'note', text:`Terms v${termsAcceptedVersion} accepted ${new Date(privacyAcceptedAt||'').toLocaleString()}` } ] : [ { key:'acceptTerms', type:'action', label:'Accept Terms & Privacy', onPress: acceptTermsNow, variant:'secondary' } ];
+
   // ===== SectionList Data =====
+  const escrowSection = { title:'Key Escrow', data: [ { key:'escrowInfo', type:'note', text:'Create a passphrase-protected backup of your local encryption key for multi-device use.' }, { key:'escrowExpand', type:'expand', label: showKeyEscrow? 'Hide Key Escrow':'Manage Key Escrow', onToggle: ()=> setShowKeyEscrow(p=>!p), expanded: showKeyEscrow, content:'escrow' } ] };
+
   const sections = [
+    !emailVerified ? {
+      title: 'Email Verification Required',
+      data: [
+        { key:'verifyNote', type:'note', text:'Your email is not yet verified. Some security actions may be limited until verification.' },
+        { key:'resendVerify', type:'action', label: sendingVerify? 'Sending...' : 'Resend Verification Email', disabled: sendingVerify, onPress: resendVerification },
+        { key:'refreshVerify', type:'action', label: refreshingVerify? 'Checking...' : 'I Have Verified – Refresh', disabled: refreshingVerify, onPress: refreshVerificationStatus }
+      ]
+    } : null,
     {
       title: 'Account',
       data: [
         { key:'signout', type:'action', label:'Sign Out', onPress: logout, variant:'secondary' },
+        { key:'signoutAll', type:'action', label:'Sign Out All Devices', onPress: async()=>{ try { await bumpSessionEpoch(); Alert.alert('Sessions','All devices will be signed out shortly.'); } catch(e){ Alert.alert('Error', e.message); } }, variant:'secondary' },
         { key:'resetOnboard', type:'action', label:'Reset Onboarding', onPress: resetOnboarding }
       ]
     },
@@ -232,23 +312,26 @@ export default function SettingsScreen() {
         { key:'localOnly', type:'toggle', label:'Local-Only Mode', value: localOnly, onValueChange: toggleLocalOnly },
         { key:'biometric', type:'toggle', label:'Biometric Unlock', value: biometricPref, onValueChange: toggleBiometric },
         { key:'darkMode', type:'toggle', label:'Dark Mode', value: themeMode==='dark', onValueChange: async(val)=>{ const next = val? 'dark':'light'; setThemeModeLocal(next); RNEmitter.emit('theme-mode-sync', { mode: next }); try { await updateUserProfile({ themeMode: next }); } catch {} } },
+        { key:'analyticsOptOut', type:'toggle', label:'Analytics Opt-Out', value: analyticsOptOut, onValueChange: async(val)=>{ setAnalyticsOptOut(val); try { await updateUserProfile({ analyticsOptOut: val }); } catch {} } },
         { key:'autoLock', type:'choices', label:'Auto-Lock', value:autoLock }
       ].concat(lastRemoteWipe ? [{ key:'lastWipe', type:'note', text:`Last Remote Wipe: ${new Date(lastRemoteWipe).toLocaleString()}` }] : [])
     },
     {
       title: 'Data Management',
       data: [
-        { key:'export', type:'action', label: exporting? 'Exporting...' : 'Export Data', disabled: exporting, onPress: ()=>{ if(exporting) return; Alert.alert('Export Format','Choose a format to export your mood entries.',[ { text:'JSON', onPress:()=>doExport('json') }, { text:'CSV', onPress:()=>doExport('csv') }, { text:'Cancel', style:'cancel' } ]);} },
+        { key:'export', type:'action', label: exporting? 'Exporting...' : 'Export Data', disabled: exporting, onPress: ()=>{ if(exporting) return; Alert.alert('Export Format','Choose a format to export your mood entries.',[ { text:'JSON', onPress:()=>doExport('json') }, { text:'CSV', onPress:()=>doExport('csv') }, { text:'Markdown', onPress:()=>doExport('md') }, { text:'Cancel', style:'cancel' } ]);} },
         { key:'delAll', type:'action', label:'Delete All Data', danger:true, onPress: confirmDeleteAll }
       ]
-    }
-  ];
+    },
+    escrowSection,
+    { title:'Consent', data: consentItems }
+  ].filter(Boolean);
 
   const renderItem = ({ item }) => {
     if(item.type === 'action'){
       return (
         <View style={styles.itemRow}>
-          <PrimaryButton title={item.label} onPress={item.onPress} disabled={item.disabled} fullWidth variant={item.danger? 'danger': (item.variant||'primary')} />
+          <PrimaryButton accessibilityLabel={`Action: ${item.label}`} title={item.label} onPress={item.onPress} disabled={item.disabled} fullWidth variant={item.danger? 'danger': (item.variant||'primary')} />
         </View>
       );
     }
@@ -290,7 +373,7 @@ export default function SettingsScreen() {
       return (
         <View style={[styles.itemRow, styles.rowBetween]}>
           <Text style={styles.label}>{item.label}</Text>
-          <Switch value={item.value} onValueChange={item.onValueChange} />
+          <Switch accessibilityLabel={`Toggle: ${item.label}`} value={item.value} onValueChange={item.onValueChange} />
         </View>
       );
     }
@@ -347,6 +430,21 @@ export default function SettingsScreen() {
                 </>
               )}
               <PrimaryButton title={deletingAcct? 'Deleting...' : 'Confirm Delete'} disabled={deletingAcct} onPress={handleDeleteAccount} fullWidth variant='danger' />
+            </View>
+          )}
+          {item.expanded && item.content === 'escrow' && (
+            <View style={styles.boxInner}>
+              <Text style={styles.subLabel}>Create / Update Escrow</Text>
+              <Input value={passphrase} onChangeText={setPassphrase} placeholder='New passphrase' secureTextEntry />
+                <Input value={confirmPassphrase} onChangeText={setConfirmPassphrase} placeholder='Confirm passphrase' secureTextEntry />
+                <PrimaryButton accessibilityLabel='Store key escrow passphrase' title={escrowing? 'Saving...' : 'Store Escrow'} onPress={handleCreateEscrow} disabled={escrowing} fullWidth />
+                <View style={{ height:8 }} />
+                <PrimaryButton accessibilityLabel='Export key escrow JSON' title='Export Escrow JSON' variant='secondary' onPress={handleExportEscrow} fullWidth />
+                <View style={{ height:16 }} />
+                <Text style={styles.subLabel}>Import Escrow</Text>
+                <Input value={importData} onChangeText={setImportData} placeholder='Paste escrow JSON here' multiline style={{ height:100, textAlignVertical:'top' }} />
+                <Input value={importPassphrase} onChangeText={setImportPassphrase} placeholder='Passphrase' secureTextEntry />
+                <PrimaryButton accessibilityLabel='Test import key escrow JSON' title={importing? 'Importing...' : 'Test Import'} onPress={handleImportEscrow} disabled={importing} fullWidth />
             </View>
           )}
         </View>

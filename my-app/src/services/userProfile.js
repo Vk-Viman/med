@@ -35,6 +35,10 @@ export async function ensureUserProfile(extra = {}){
       localOnlyLast: false,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
+      analyticsOptOut: false,
+      sessionEpoch: Date.now(),
+      termsAcceptedVersion: null,
+      privacyAcceptedAt: null,
       ...extra
     };
     await setDoc(ref, base, { merge: true });
@@ -62,4 +66,9 @@ export async function deleteUserProfile(){
 export async function flagWipeRequested(val=true){
   const uid = auth.currentUser?.uid; if(!uid) return;
   await updateDoc(userDocRef(uid), { wipeRequested: val, updatedAt: serverTimestamp() });
+}
+
+export async function bumpSessionEpoch(){
+  const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');
+  await updateDoc(userDocRef(uid), { sessionEpoch: Date.now(), updatedAt: serverTimestamp() });
 }

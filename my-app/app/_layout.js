@@ -66,19 +66,34 @@ function ActivityWrapper({ children }){
   // Remote wipe polling (lightweight): on focus + every 30s
   useEffect(()=>{
     let wipeInterval;
+    const PENDING_FLAG = 'pending_remote_wipe_v1';
+    const attemptLocalWipe = async ()=>{
+      try {
+        await deleteAllMoodEntries();
+        try { await AsyncStorage.removeItem('offlineMoodQueue'); } catch {}
+        try { await AsyncStorage.removeItem('secure_mood_key_cache_b64'); } catch {}
+        try { await AsyncStorage.removeItem(PENDING_FLAG); } catch {}
+        return true;
+      } catch { return false; }
+    };
+    const checkPending = async ()=>{
+      try { const p = await AsyncStorage.getItem(PENDING_FLAG); if(p==='1'){ const ok = await attemptLocalWipe(); if(ok){ const ts = Date.now(); try { await AsyncStorage.setItem('last_remote_wipe_ts', String(ts)); } catch {}; DeviceEventEmitter.emit('remote-wipe-done', { ts }); Alert.alert('Data Wiped','Pending remote wipe completed.'); } } } catch {}
+    };
     const checkWipe = async () => {
+      await checkPending();
       try {
         const prof = await getUserProfile();
         if(prof?.wipeRequested){
-          // Perform local wipe: mood entries + queues + encryption key caches
-          try { await deleteAllMoodEntries(); } catch {}
-          try { await AsyncStorage.removeItem('offlineMoodQueue'); } catch {}
-          try { await AsyncStorage.removeItem('secure_mood_key_cache_b64'); } catch {}
-          try { await updateUserProfile({ wipeRequested:false }); } catch {}
-          const ts = Date.now();
-          try { await AsyncStorage.setItem('last_remote_wipe_ts', String(ts)); } catch {}
-          DeviceEventEmitter.emit('remote-wipe-done', { ts });
-          Alert.alert('Data Wiped', 'A remote wipe request was applied. All local mood data and encryption keys were cleared.');
+          const ok = await attemptLocalWipe();
+          if(ok){
+            try { await updateUserProfile({ wipeRequested:false }); } catch {}
+            const ts = Date.now();
+            try { await AsyncStorage.setItem('last_remote_wipe_ts', String(ts)); } catch {}
+            DeviceEventEmitter.emit('remote-wipe-done', { ts });
+            Alert.alert('Data Wiped', 'A remote wipe request was applied. All local mood data and encryption keys were cleared.');
+          } else {
+            try { await AsyncStorage.setItem(PENDING_FLAG,'1'); } catch {}
+          }
         }
       } catch {}
     };

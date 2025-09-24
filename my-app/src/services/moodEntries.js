@@ -245,6 +245,15 @@ export function buildMoodCSV(rows){
   return [header, ...lines].join('\n');
 }
 
+export function buildMoodMarkdown(rows){
+  const lines = ['# Mood Entries Export','', `Exported: ${new Date().toISOString()}`,''];
+  rows.forEach(r=>{
+    lines.push(`## ${r.createdAt || 'Unknown Date'} — Mood: ${r.mood} (Stress: ${r.stress})`);
+    if(r.note){ lines.push('', r.note.trim(), ''); } else { lines.push('', '_No note_', ''); }
+  });
+  return lines.join('\n');
+}
+
 export async function deleteAllMoodEntries(){
   const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');
   const qRef = query(collection(db, `users/${uid}/moods`));
@@ -294,4 +303,36 @@ export async function getMoodSummary({ streakLookbackDays = 14 } = {}){
     if(byDay.has(key)) streak++; else break;
   }
   return { latest, streak };
+}
+
+// --- Debug / Dev only functions ---
+export async function __getExistingDeviceKeyBase64(){
+  return getOrCreateSecureKey();
+}
+
+// --- Key Escrow (passphrase protected export/import) ---
+// Derive 32-byte key via PBKDF2 (CryptoJS) using 100k iterations SHA256
+function pbkdf2Key(passphrase, saltB64){
+  const salt = CryptoJS.enc.Base64.parse(saltB64);
+  const key = CryptoJS.PBKDF2(passphrase, salt, { keySize: 256/32, iterations: 100000, hasher: CryptoJS.algo.SHA256 });
+  return key; // WordArray
+}
+export async function escrowEncryptDeviceKey(passphrase){
+  const deviceKeyB64 = await getOrCreateSecureKey();
+  const saltBytes = await ExpoCrypto.getRandomBytesAsync(16);
+  const saltWA = CryptoJS.lib.WordArray.create(saltBytes);
+  const saltB64 = CryptoJS.enc.Base64.stringify(saltWA);
+  const derived = pbkdf2Key(passphrase, saltB64);
+  // Encrypt device key string with derived key using random IV
+  const { ivWA, ivB64 } = await randomIvBase64();
+  const ct = CryptoJS.AES.encrypt(deviceKeyB64, derived, { iv: ivWA, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 });
+  return { encDeviceKey: ct.toString(), encIv: ivB64, kdfSalt: saltB64, kdfIter: 100000, kdfAlg:'pbkdf2-sha256', encAlg:'aes-256-cbc-pkcs7' };
+}
+export async function escrowDecryptDeviceKey(passphrase, { encDeviceKey, encIv, kdfSalt }){
+  try {
+    const derived = pbkdf2Key(passphrase, kdfSalt);
+    const ivWA = CryptoJS.enc.Base64.parse(encIv);
+    const pt = CryptoJS.AES.decrypt(encDeviceKey, derived, { iv: ivWA, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }).toString(CryptoJS.enc.Utf8);
+    return pt || null;
+  } catch { return null; }
 }
