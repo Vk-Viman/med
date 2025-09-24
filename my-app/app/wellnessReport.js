@@ -1,11 +1,12 @@
 ﻿import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, TextInput, Alert, ActivityIndicator, RefreshControl } from "react-native";
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, TextInput, Alert, ActivityIndicator, RefreshControl, Switch } from "react-native";
 import GradientBackground from "../src/components/GradientBackground";
 import { db, auth } from "../firebase/firebaseConfig";
 import { collection, query, orderBy, getDocs } from "firebase/firestore"; // legacy direct fetch kept for chart initial version
 import { LineChart } from "react-native-chart-kit";
 import CryptoJS from "crypto-js";
 import { listMoodEntriesPage, decryptEntry, updateMoodEntry, deleteMoodEntry, flushQueue } from "../src/services/moodEntries";
+import MarkdownPreview from "../src/components/MarkdownPreview";
 import { Dimensions } from "react-native";
 import Card from "../src/components/Card";
 
@@ -20,13 +21,19 @@ export default function WellnessReport() {
   const [editMood, setEditMood] = useState("");
   const [editStress, setEditStress] = useState(0);
   const [editNote, setEditNote] = useState("");
+  const [showEditPreview, setShowEditPreview] = useState(false);
   const loadPage = async (reset=false) => {
     const uid = auth.currentUser?.uid; if(!uid) return;
     if(reset){ setLoading(true); }
     try{
       const { docs, last } = await listMoodEntriesPage({ pageSize:20, after: reset? null : pageCursor });
-      const mapped = docs.map(d => decryptEntry(uid, { ...d.data(), id: d.id }));
-      setEntries(prev => reset? mapped : [...prev, ...mapped]);
+      const decrypted = [];
+      for(const d of docs){
+        const base = { ...d.data(), id: d.id };
+        const full = await decryptEntry(uid, base);
+        decrypted.push(full);
+      }
+      setEntries(prev => reset? decrypted : [...prev, ...decrypted]);
       setPageCursor(last);
     }catch(e){
       Alert.alert('Error', e.message);
@@ -117,13 +124,21 @@ export default function WellnessReport() {
       data={entries}
       keyExtractor={e => e.id}
       ListHeaderComponent={ListHeader}
-      renderItem={({ item }) => (
-        <TouchableOpacity style={styles.entry} onPress={() => openEdit(item)} onLongPress={() => confirmDelete(item)} delayLongPress={500}>
-          <Text style={styles.mood}>{item.mood} | Stress: {item.stress}</Text>
-          {!!item.note && <Text style={styles.note}>{item.note}</Text>}
-          <Text style={styles.date}>{item.createdAt?.seconds ? new Date(item.createdAt.seconds * 1000).toLocaleString() : ''}</Text>
-        </TouchableOpacity>
-      )}
+      renderItem={({ item }) => {
+        const hasCipher = item.encVer === 2 && item.noteCipher;
+        const showPlaceholder = hasCipher && (item.note === '' || typeof item.note === 'undefined');
+        return (
+          <TouchableOpacity style={styles.entry} onPress={() => openEdit(item)} onLongPress={() => confirmDelete(item)} delayLongPress={500}>
+            <Text style={styles.mood}>{item.mood} | Stress: {item.stress} {item.legacy && <Text style={styles.legacy}>LEGACY</Text>}</Text>
+            {item.note ? (
+              <MarkdownPreview text={item.note} style={styles.note} />
+            ) : showPlaceholder ? (
+              <Text style={styles.notePlaceholder}>Encrypted note (empty or failed to decrypt)</Text>
+            ) : null}
+            <Text style={styles.date}>{item.createdAt?.seconds ? new Date(item.createdAt.seconds * 1000).toLocaleString() : ''}</Text>
+          </TouchableOpacity>
+        );
+      }}
       onEndReached={loadMore}
       onEndReachedThreshold={0.2}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -141,8 +156,21 @@ export default function WellnessReport() {
         <TextInput value={editMood} onChangeText={setEditMood} style={styles.input} />
         <Text style={styles.modalLabel}>Stress (0-10)</Text>
         <TextInput value={String(editStress)} onChangeText={t=>setEditStress(Number(t)||0)} keyboardType="numeric" style={styles.input} />
-        <Text style={styles.modalLabel}>Note</Text>
-        <TextInput value={editNote} onChangeText={setEditNote} style={[styles.input,{height:80}]} multiline />
+        <View style={styles.noteHeaderRow}>
+          <Text style={styles.modalLabel}>Note</Text>
+          <View style={styles.previewToggleRow}>
+            <Text style={styles.previewToggleLabel}>Preview</Text>
+            <Switch value={showEditPreview} onValueChange={setShowEditPreview} />
+          </View>
+        </View>
+        {!showEditPreview && (
+          <TextInput value={editNote} onChangeText={setEditNote} style={[styles.input,{height:100}]} multiline placeholder="Edit note (Markdown *italic* **bold**)" />
+        )}
+        {showEditPreview && (
+          <View style={styles.previewBox}>
+            <MarkdownPreview text={editNote} />
+          </View>
+        )}
         <View style={styles.modalActions}>
           <TouchableOpacity style={[styles.actionBtn,{backgroundColor:'#B0BEC5'}]} onPress={()=>setEditModal(false)}><Text style={styles.actionText}>Cancel</Text></TouchableOpacity>
           <TouchableOpacity style={[styles.actionBtn,{backgroundColor:'#0288D1'}]} onPress={saveEdit}><Text style={styles.actionText}>Save</Text></TouchableOpacity>
@@ -161,7 +189,9 @@ const styles = StyleSheet.create({
   label: { fontSize: 16, color: "#0277BD", marginBottom: 12 },
   entry: { backgroundColor: "#fff", borderRadius: 8, padding: 12, marginBottom: 10 },
   mood: { fontSize: 16, fontWeight: "600" },
+  legacy: { fontSize:10, color:'#FB8C00', fontWeight:'700' },
   note: { fontSize: 15, color: "#01579B", marginVertical: 4 },
+  notePlaceholder:{ fontSize:13, fontStyle:'italic', color:'#607D8B', marginVertical:4 },
   date: { fontSize: 12, color: "#90A4AE" },
   loadingOverlay:{ position:'absolute', top:0,left:0,right:0,bottom:0, alignItems:'center', justifyContent:'center' },
   modalBackdrop:{ flex:1, backgroundColor:'rgba(0,0,0,0.4)', justifyContent:'center', padding:24 },
@@ -172,4 +202,11 @@ const styles = StyleSheet.create({
   modalActions:{ flexDirection:'row', justifyContent:'flex-end', marginTop:16, gap:12 },
   actionBtn:{ paddingHorizontal:16, paddingVertical:10, borderRadius:8 },
   actionText:{ color:'#fff', fontWeight:'600' }
+});
+// Additional styles for preview toggle
+Object.assign(styles, {
+  noteHeaderRow:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginTop:8 },
+  previewToggleRow:{ flexDirection:'row', alignItems:'center', gap:6 },
+  previewToggleLabel:{ fontSize:12, color:'#01579B', marginRight:4 },
+  previewBox:{ backgroundColor:'#FFFFFF', borderRadius:8, padding:10, marginTop:6 }
 });

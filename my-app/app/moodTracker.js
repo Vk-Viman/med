@@ -10,10 +10,11 @@ if (typeof global === "object" && (typeof global.crypto === "undefined" || typeo
     return arr;
   };
 }
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, Modal, FlatList, Animated, useWindowDimensions } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, Modal, FlatList, Animated, useWindowDimensions, Switch } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import GradientBackground from "../src/components/GradientBackground";
+import MarkdownPreview from "../src/components/MarkdownPreview";
 import Slider from "@react-native-community/slider";
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from "expo-router";
@@ -58,6 +59,8 @@ const extraEmojis = [
   "😀","😁","😃","😄","😅","😉","🙂","🥲","😍","🤩","🥳","😎","🤔","😴","😕","😟","😡","😤","😭","😇","🤗","😪","😬","🤯","😱","😰","😓","😵","😶","😷"
 ];
 
+// MarkdownPreview now imported from shared component
+
 export default function MoodTracker() {
   const { width } = useWindowDimensions();
   // Compute size so 5 buttons + margins fit (side padding ~24*2 and horizontal gaps ~4*8 total)
@@ -68,7 +71,31 @@ export default function MoodTracker() {
   const [otherEmoji, setOtherEmoji] = useState("💫");
   const [stress, setStress] = useState(5);
   const lastHapticStress = useRef(stress);
+  const stressAnim = useRef(new Animated.Value(5)).current;
+
+  // Animate aura when stress changes
+  useEffect(()=>{
+    Animated.timing(stressAnim, { toValue: stress, duration: 220, useNativeDriver:false }).start();
+  }, [stress]);
+
+  const stressColor = stressAnim.interpolate({
+    inputRange:[0,2,4,6,8,10],
+    // Removed deep navy (#01579B); inserted light orange (#FFA726) transition
+    outputRange:["#4FC3F7","#29B6F6","#0288D1","#FFA726","#EF6C00","#D32F2F"]
+  });
+
+  const qualitative = (() => {
+    if (stress <= 1) return 'Calm';
+    if (stress <= 3) return 'Centered';
+    if (stress <= 5) return 'Manageable';
+    if (stress <= 7) return 'Elevated';
+    if (stress <= 8) return 'High';
+    return 'Overwhelmed';
+  })();
   const [note, setNote] = useState("");
+  const [selection, setSelection] = useState({ start: 0, end: 0 });
+  const [showPreview, setShowPreview] = useState(false);
+  const MAX_NOTE = 500;
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
@@ -209,10 +236,15 @@ export default function MoodTracker() {
           );
         })}
       </View>
-      <Text style={styles.label}>Stress Level: {stress}</Text>
+      <View style={styles.stressHeaderRow}>
+        <Text style={styles.label}>Stress Level: {stress}</Text>
+        <Animated.View style={[styles.stressAura,{ backgroundColor: stressColor }]}> 
+          <Text style={styles.stressAuraText}>{stress}</Text>
+        </Animated.View>
+      </View>
       <View style={styles.sliderBlock}>
         <LinearGradient
-          colors={["#4FC3F7","#29B6F6","#0288D1","#01579B"]}
+          colors={["#4FC3F7","#29B6F6","#0288D1","#FFA726","#EF6C00","#D32F2F"]}
           start={{ x:0, y:0 }} end={{ x:1, y:0 }}
           style={styles.gradientTrack}
         >
@@ -242,15 +274,93 @@ export default function MoodTracker() {
             <Text key={n} style={[styles.tickLabel, n===stress && styles.tickActive]}>{n}</Text>
           ))}
         </View>
+        <Animated.Text style={[styles.qualitative,{ color: stressColor }]}>{qualitative}</Animated.Text>
       </View>
-      <Text style={styles.label}>Journal Note</Text>
-      <TextInput
-        style={styles.input}
-        value={note}
-        onChangeText={setNote}
-        placeholder="Write a short note..."
-        multiline
-      />
+      <View style={styles.noteHeaderRow}>
+        <Text style={styles.label}>Journal Note</Text>
+        <View style={styles.noteMetaRow}>
+          <Text style={styles.counter}>{note.length}/{MAX_NOTE}</Text>
+          <View style={styles.previewToggle}>
+            <Text style={styles.previewLabel}>Preview</Text>
+            <Switch value={showPreview} onValueChange={setShowPreview} />
+          </View>
+        </View>
+      </View>
+      {!showPreview && (
+        <>
+          <View style={styles.formatBar}>
+            <TouchableOpacity style={styles.formatBtn} onPress={()=>{
+              // Bold formatting toggle **text**
+              const { start, end } = selection;
+              if(end <= start){
+                // No selection – insert bold markers and place cursor between
+                const insert = '**bold**';
+                const newText = note.slice(0,start) + insert + note.slice(end);
+                setNote(newText);
+                const cursor = start + 2; // between **|bold**
+                setTimeout(()=>setSelection({ start: cursor, end: cursor+4 }),0);
+                return;
+              }
+              const selText = note.slice(start,end);
+              const isWrapped = /^\*\*.*\*\*$/.test(selText);
+              let replacement;
+              if(isWrapped){
+                replacement = selText.slice(2,-2);
+              } else {
+                replacement = `**${selText}**`;
+              }
+              const newText = note.slice(0,start) + replacement + note.slice(end);
+              const delta = replacement.length - selText.length;
+              setNote(newText);
+              const newEnd = end + delta;
+              setTimeout(()=>setSelection({ start, end: newEnd }),0);
+            }}>
+              <Text style={styles.formatBtnText}>B</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.formatBtn} onPress={()=>{
+              // Italic formatting toggle *text*
+              const { start, end } = selection;
+              if(end <= start){
+                const insert = '*italic*';
+                const newText = note.slice(0,start) + insert + note.slice(end);
+                setNote(newText);
+                const cursor = start + 1; // between *|italic*
+                setTimeout(()=>setSelection({ start: cursor, end: cursor+6 }),0);
+                return;
+              }
+              const selText = note.slice(start,end);
+              const isWrapped = /^\*[^*].*\*$/.test(selText) && !/^\*\*.*\*\*$/.test(selText);
+              let replacement;
+              if(isWrapped){
+                replacement = selText.slice(1,-1);
+              } else {
+                replacement = `*${selText}*`;
+              }
+              const newText = note.slice(0,start) + replacement + note.slice(end);
+              const delta = replacement.length - selText.length;
+              setNote(newText);
+              const newEnd = end + delta;
+              setTimeout(()=>setSelection({ start, end: newEnd }),0);
+            }}>
+              <Text style={styles.formatBtnText}>I</Text>
+            </TouchableOpacity>
+          </View>
+          <TextInput
+            style={styles.input}
+            value={note}
+            onChangeText={(t)=>{ if(t.length <= MAX_NOTE) setNote(t); }}
+            placeholder="Write a short note... (Markdown *italic* **bold**)"
+            multiline
+            selection={selection}
+            onSelectionChange={(e)=> setSelection(e.nativeEvent.selection)}
+          />
+        </>
+      )}
+      {showPreview && (
+        <View style={styles.previewBox}>
+          <MarkdownPreview text={note} />
+        </View>
+      )}
       <PrimaryButton title="Save" onPress={saveEntry} disabled={loading} fullWidth />
 
       <Modal visible={showPicker} transparent animationType="fade" onRequestClose={() => setShowPicker(false)}>
@@ -307,7 +417,20 @@ const styles = StyleSheet.create({
   ticksRow:{ flexDirection:'row', justifyContent:'space-between', marginTop:4 },
   tickLabel:{ fontSize:12, color:'#0277BD', width:20, textAlign:'center' },
   tickActive:{ fontWeight:'700', color:'#01579B' },
+  stressHeaderRow:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:8 },
+  stressAura:{ width:36, height:36, borderRadius:18, alignItems:'center', justifyContent:'center', shadowColor:'#000', shadowOpacity:0.15, shadowRadius:6, shadowOffset:{width:0,height:2}, elevation:3 },
+  stressAuraText:{ color:'#fff', fontWeight:'700' },
+  qualitative:{ marginTop:6, textAlign:'center', fontSize:14, fontWeight:'600' },
   input: { backgroundColor: "#fff", borderRadius: 8, padding: 12, minHeight: 60, marginBottom: 18 },
+  noteHeaderRow:{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-end' },
+  noteMetaRow:{ alignItems:'flex-end' },
+  counter:{ fontSize:12, color:'#0277BD', textAlign:'right' },
+  previewToggle:{ flexDirection:'row', alignItems:'center', marginTop:4 },
+  previewLabel:{ fontSize:12, color:'#01579B', marginRight:4 },
+  previewBox:{ backgroundColor:'#FFFFFFAA', padding:12, borderRadius:8, marginBottom:18 },
+  formatBar:{ flexDirection:'row', marginBottom:8 },
+  formatBtn:{ backgroundColor:'#0288D1', paddingHorizontal:12, paddingVertical:6, borderRadius:6, marginRight:8 },
+  formatBtnText:{ color:'#fff', fontWeight:'700', fontSize:14 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'center', padding: 24 },
   modalCard: { backgroundColor: '#fff', borderRadius: 20, padding: 16, maxHeight: '70%' },
   modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 12, color: '#01579B' },
