@@ -1,7 +1,7 @@
 // Mood Entries Service: CRUD + encryption + offline queue
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db, auth } from '../../firebase/firebaseConfig';
-import { doc, setDoc, updateDoc, deleteDoc, serverTimestamp, collection, getDocs, query, orderBy, limit, startAfter } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, deleteDoc, serverTimestamp, collection, getDocs, query, orderBy, limit, startAfter, where, Timestamp } from 'firebase/firestore';
 import CryptoJS from 'crypto-js';
 import * as SecureStore from 'expo-secure-store';
 import * as ExpoCrypto from 'expo-crypto';
@@ -105,7 +105,7 @@ export async function createMoodEntry({ mood, stress, note }){
   const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');
   const { cipher, iv, encVer, alg } = await encryptV2(note || '');
   const id = `${Date.now()}`;
-  const payload = { mood, stress, noteCipher: cipher, noteIv: iv, encVer, noteAlg: alg, createdAt: serverTimestamp(), noteLen: (note||'').length };
+  const payload = { mood, stress, noteCipher: cipher, noteIv: iv, encVer, noteAlg: alg, createdAt: serverTimestamp() };
   try {
     await setDoc(doc(db, `users/${uid}/moods`, id), payload);
   } catch(e){
@@ -119,10 +119,10 @@ export async function updateMoodEntry(id, { mood, stress, note, legacyToV2=false
   let payload;
   if(legacyToV2){
     const { cipher, iv, encVer, alg } = await encryptV2(note || '');
-    payload = { mood, stress, noteCipher: cipher, noteIv: iv, encVer, noteAlg: alg, note: null, noteLen: (note||'').length };
+    payload = { mood, stress, noteCipher: cipher, noteIv: iv, encVer, noteAlg: alg, note: null };
   } else {
     const { cipher, iv, encVer, alg } = await encryptV2(note || '');
-    payload = { mood, stress, noteCipher: cipher, noteIv: iv, encVer, noteAlg: alg, noteLen: (note||'').length };
+    payload = { mood, stress, noteCipher: cipher, noteIv: iv, encVer, noteAlg: alg };
   }
   try { await updateDoc(doc(db, `users/${uid}/moods`, id), payload); }
   catch(e){ await enqueue({ op:'update', id, payload }); }
@@ -143,6 +143,21 @@ export async function listMoodEntriesPage({ pageSize=20, after=null }){
   const docs = [];
   snap.forEach(d => docs.push(d));
   return { docs, last: snap.docs[snap.docs.length-1] || null };
+}
+
+// Retrieve all entries within the last N days (inclusive) ordered ascending by createdAt for charting
+export async function listMoodEntriesSince({ days=7 }){
+  const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // today 00:00
+  start.setDate(start.getDate() - (days - 1));
+  const startTs = Timestamp.fromDate(start);
+  // createdAt may be null for unsynced offline entries; those will be excluded
+  const qRef = query(collection(db, `users/${uid}/moods`), where('createdAt','>=', startTs), orderBy('createdAt','asc'));
+  const snap = await getDocs(qRef);
+  const docs = [];
+  snap.forEach(d => docs.push(d));
+  return docs; // array of DocumentSnapshots
 }
 
 export async function decryptEntry(uid, entry){
