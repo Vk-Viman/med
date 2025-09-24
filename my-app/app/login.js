@@ -8,6 +8,7 @@ import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { auth } from "../firebase/firebaseConfig";
 import { signInWithEmailAndPassword } from "firebase/auth";
+import { ensureUserProfile } from "../src/services/userProfile";
 import PrimaryButton from "../src/components/PrimaryButton";
 import { colors, spacing, radius, shadow } from "../src/theme";
 
@@ -20,6 +21,7 @@ export default function LoginScreen() {
   const handleLogin = async () => {
     try {
   await signInWithEmailAndPassword(auth, email, password);
+  try { await ensureUserProfile(); } catch {}
   router.replace("/(tabs)");
     } catch (e) {
       setError(e.message);

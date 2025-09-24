@@ -19,25 +19,27 @@ const dark = {
   primaryContrast: "#0B1722",
 };
 
-const ThemeCtx = createContext({ theme: light, mode: "light", toggle: () => {} });
+const ThemeCtx = createContext({ theme: light, mode: "light", toggle: () => {}, setThemeMode: ()=>{} });
 
-export function ThemeProvider({ children }) {
-  const [mode, setMode] = useState("light");
+export function ThemeProvider({ children, initialMode }) {
+  const [mode, setMode] = useState(initialMode === 'dark' ? 'dark' : 'light');
 
   useEffect(() => {
     (async () => {
+      // Allow stored override if no explicit initialMode was passed (first mount)
       const saved = await AsyncStorage.getItem("cs_theme");
       if (saved === "dark" || saved === "light") setMode(saved);
     })();
   }, []);
 
-  const toggle = async () => {
-    const next = mode === "light" ? "dark" : "light";
+  const persistAndSet = async(next) => {
     setMode(next);
     await AsyncStorage.setItem("cs_theme", next);
   };
+  const toggle = async () => { const next = mode === 'light' ? 'dark':'light'; await persistAndSet(next); };
+  const setThemeMode = async (next) => { if(next!== 'light' && next!=='dark') return; await persistAndSet(next); };
 
-  const value = useMemo(() => ({ theme: mode === "light" ? light : dark, mode, toggle }), [mode]);
+  const value = useMemo(() => ({ theme: mode === "light" ? light : dark, mode, toggle, setThemeMode }), [mode]);
   return <ThemeCtx.Provider value={value}>{children}</ThemeCtx.Provider>;
 }
 

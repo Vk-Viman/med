@@ -1,12 +1,14 @@
 ﻿import React, { useEffect, useState, useRef } from "react";
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, TextInput, Alert, ActivityIndicator, RefreshControl, Switch, Animated } from "react-native";
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, TextInput, Alert, ActivityIndicator, RefreshControl, Switch, Animated, Platform } from "react-native";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import GradientBackground from "../src/components/GradientBackground";
 import { db, auth } from "../firebase/firebaseConfig";
 import { collection, query, orderBy, getDocs } from "firebase/firestore"; // legacy direct fetch kept for chart initial version
 import { LineChart, PieChart } from "react-native-chart-kit";
-import CryptoJS from "crypto-js";
-import { listMoodEntriesPage, listMoodEntriesSince, decryptEntry, updateMoodEntry, deleteMoodEntry, flushQueue } from "../src/services/moodEntries";
+import CryptoJS from "crypto-js"; // retained (may be used elsewhere / future)
+import { listMoodEntriesPage, listMoodEntriesSince, listMoodEntriesBetween, decryptEntry, updateMoodEntry, deleteMoodEntry, flushQueue } from "../src/services/moodEntries";
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { Share } from 'react-native';
 import MarkdownPreview from "../src/components/MarkdownPreview";
 import { Dimensions } from "react-native";
 import Card from "../src/components/Card";
@@ -29,7 +31,14 @@ export default function WellnessReport() {
   const [tfEntries, setTfEntries] = useState([]); // entries for charts/stats (already decrypted)
   const [tfLoading, setTfLoading] = useState(true);
   const [moodFilter, setMoodFilter] = useState(null); // drill-down mood
+  const [customRange, setCustomRange] = useState(null); // { start:Date, end:Date }
+  const [rangeModal, setRangeModal] = useState(false);
+  const [rangePicking, setRangePicking] = useState('start'); // 'start' or 'end'
   const chartFade = useRef(new Animated.Value(1)).current;
+  const pieAnim = useRef(new Animated.Value(1)).current;
+  const pointAnimValues = useRef([]); // Animated.Value[] for each point
+  const pointListeners = useRef([]); // store subscriptions for cleanup
+  const [animatedChartData, setAnimatedChartData] = useState(null); // progressive dataset
   const loadPage = async (reset=false) => {
     const uid = auth.currentUser?.uid; if(!uid) return;
     if(reset){ setLoading(true); }
@@ -55,31 +64,37 @@ export default function WellnessReport() {
   useEffect(() => { flushQueue(); loadPage(true); }, []);
 
   // Load persisted timeframe on mount
-  useEffect(()=>{ (async()=>{ try{ const stored = await AsyncStorage.getItem('report_timeframe'); if(stored) setTimeframe(Number(stored)); }catch{} })(); },[]);
+  useEffect(()=>{ (async()=>{ try{ const stored = await AsyncStorage.getItem('report_timeframe'); if(stored) setTimeframe(Number(stored)); const cStart = await AsyncStorage.getItem('report_range_start'); const cEnd = await AsyncStorage.getItem('report_range_end'); if(cStart && cEnd){ setCustomRange({ start:new Date(cStart), end:new Date(cEnd) }); } }catch{} })(); },[]);
 
   // Load timeframe specific entries when timeframe changes
-  useEffect(()=>{
-    (async () => {
-      const uid = auth.currentUser?.uid; if(!uid) return;
-      setTfLoading(true);
-      try {
-        // persist selection
+  const loadRangeData = async () => {
+    const uid = auth.currentUser?.uid; if(!uid) return;
+    setTfLoading(true);
+    try {
+      chartFade.setValue(0); pieAnim.setValue(0);
+      let docs;
+      if(customRange){
+        docs = await listMoodEntriesBetween({ startDate: customRange.start, endDate: customRange.end });
+      } else {
         try { await AsyncStorage.setItem('report_timeframe', String(timeframe)); } catch{}
-        // animate fade out
-        chartFade.setValue(0);
-        const docs = await listMoodEntriesSince({ days: timeframe });
-        const decrypted = [];
-        for(const d of docs){
-          const base = { ...d.data(), id: d.id };
-          const full = await decryptEntry(uid, base);
-          decrypted.push(full);
-        }
-        setTfEntries(decrypted);
-      } catch(e) { /* silent for now */ }
-      setTfLoading(false);
-      Animated.timing(chartFade,{ toValue:1, duration:250, useNativeDriver:true }).start();
-    })();
-  }, [timeframe]);
+        docs = await listMoodEntriesSince({ days: timeframe });
+      }
+      const decrypted = [];
+      for(const d of docs){
+        const base = { ...d.data(), id: d.id };
+        const full = await decryptEntry(uid, base);
+        decrypted.push(full);
+      }
+      setTfEntries(decrypted);
+    } catch(e){}
+    setTfLoading(false);
+    Animated.parallel([
+      Animated.timing(chartFade,{ toValue:1, duration:260, useNativeDriver:true }),
+      Animated.spring(pieAnim,{ toValue:1, useNativeDriver:true, friction:6 })
+    ]).start();
+  };
+
+  useEffect(()=>{ loadRangeData(); }, [timeframe, customRange]);
 
   const onRefresh = () => { setRefreshing(true); setPageCursor(null); loadPage(true); };
 
@@ -128,26 +143,71 @@ export default function WellnessReport() {
   }));
   // dynamic label thinning
   const labelEvery = chartBase.length > 10 ? Math.ceil(chartBase.length / 7) : 1;
-  const chartData = {
+  const fullChartData = {
     labels: chartBase.map((p,i)=> i % labelEvery === 0 ? `${p.date.getDate()}/${p.date.getMonth()+1}`: ''),
     datasets: [{ data: chartBase.map(p=>p.stress) }]
   };
+
+  // Helper to rebuild animated dataset from current animated values
+  const rebuildAnimatedDataset = () => {
+    if(!chartBase.length || !pointAnimValues.current.length) return;
+    const data = chartBase.map((p,i)=> {
+      const v = pointAnimValues.current[i];
+      const prog = v ? v.__getValue() : 0; // internal access acceptable here
+      return Number((p.stress * prog).toFixed(3));
+    });
+    setAnimatedChartData({ labels: fullChartData.labels, datasets:[{ data }] });
+  };
+
+  // Initialize & animate per-point values whenever chartBase length changes
+  useEffect(()=>{
+    // cleanup previous listeners
+    pointListeners.current.forEach(unsub => typeof unsub === 'function' && unsub());
+    pointListeners.current = [];
+    pointAnimValues.current = chartBase.map(()=> new Animated.Value(0));
+    // initial dataset (tiny values to avoid flat-line width issues)
+    if(chartBase.length){
+      setAnimatedChartData({ labels: fullChartData.labels, datasets:[{ data: chartBase.map(()=>0.0001) }] });
+      // attach listeners to rebuild progressively
+      pointAnimValues.current.forEach(()=> rebuildAnimatedDataset()); // ensure at least one build
+      pointAnimValues.current.forEach(v => {
+        const id = v.addListener(()=> rebuildAnimatedDataset());
+        pointListeners.current.push(()=> v.removeListener(id));
+      });
+      // start staggered animation
+      Animated.stagger(40, pointAnimValues.current.map(v=> Animated.timing(v,{ toValue:1, duration:350, useNativeDriver:false }))).start();
+    } else {
+      setAnimatedChartData(null);
+    }
+    return ()=>{ pointListeners.current.forEach(unsub => typeof unsub === 'function' && unsub()); };
+  }, [chartBase.length]);
 
   // Summary stats
   const avgStress = chartBase.length ? (chartBase.reduce((a,b)=>a+b.stress,0)/chartBase.length).toFixed(1) : '-';
   const moodFreq = filteredTf.reduce((acc,e)=>{ acc[e.mood] = (acc[e.mood]||0)+1; return acc; }, {});
   const topMood = Object.keys(moodFreq).length ? Object.entries(moodFreq).sort((a,b)=>b[1]-a[1])[0] : null;
-  // Streak: consecutive days (from today backwards) where there is at least one entry
+  // Streak: consecutive days using filtered set (respects mood filter)
   let streak = 0;
-  if(tfEntries.length){
-    const daysSet = new Set(tfEntries.filter(e=>e.createdAt?.seconds).map(e=>{
-      const d = new Date(e.createdAt.seconds*1000); return d.toDateString();
-    }));
+  if(chartBase.length){
+    const daysSet = new Set(chartBase.map(p=> p.date.toDateString()));
     const today = new Date();
-    for(let i=0;i<timeframe;i++){
+    const totalDays = customRange ? Math.ceil((customRange.end - customRange.start)/(86400000))+1 : timeframe;
+    for(let i=0;i<totalDays;i++){
       const d = new Date(today.getFullYear(), today.getMonth(), today.getDate()-i);
+      // If custom range enforce boundary
+      if(customRange){ if(d < new Date(customRange.start.getFullYear(),customRange.start.getMonth(),customRange.start.getDate())) break; }
       if(daysSet.has(d.toDateString())) streak++; else break;
     }
+  }
+
+  // Median / Min / Max
+  let median = '-'; let minStress='-'; let maxStress='-';
+  if(chartBase.length){
+    const values = chartBase.map(p=>p.stress).sort((a,b)=>a-b);
+    const mid = Math.floor(values.length/2);
+    median = values.length %2 ? values[mid] : ((values[mid-1]+values[mid])/2).toFixed(1);
+    minStress = Math.min(...values);
+    maxStress = Math.max(...values);
   }
 
   const ListHeader = () => (
@@ -155,14 +215,22 @@ export default function WellnessReport() {
       <Text style={styles.heading}>Wellness Report</Text>
       <View style={styles.timeframeRow}>
         {[7,30,90].map(d => (
-          <TouchableOpacity key={d} style={[styles.timeBtn, timeframe===d && styles.timeBtnActive]} onPress={()=>setTimeframe(d)} disabled={tfLoading}>
-            <Text style={[styles.timeBtnText, timeframe===d && styles.timeBtnTextActive]}>{d}D</Text>
+          <TouchableOpacity key={d} style={[styles.timeBtn, !customRange && timeframe===d && styles.timeBtnActive]} onPress={()=>{ setCustomRange(null); setTimeframe(d); }} disabled={tfLoading}>
+            <Text style={[styles.timeBtnText, !customRange && timeframe===d && styles.timeBtnTextActive]}>{d}D</Text>
           </TouchableOpacity>
         ))}
-        <TouchableOpacity style={[styles.timeBtn,{opacity:0.6}]} onPress={()=>Alert.alert('Custom Range','TODO: Date range picker not implemented yet')}>
-          <Text style={styles.timeBtnText}>Custom</Text>
+        <TouchableOpacity style={[styles.timeBtn, customRange && styles.timeBtnActive]} onPress={()=>{ setRangePicking('start'); setRangeModal(true); }}>
+          <Text style={[styles.timeBtnText, customRange && styles.timeBtnTextActive]}>Custom</Text>
         </TouchableOpacity>
+        {customRange && (
+          <TouchableOpacity style={[styles.timeBtn,{ backgroundColor:'#F44336'}]} onPress={()=>setCustomRange(null)}>
+            <Text style={[styles.timeBtnText,{ color:'#fff'}]}>Clear</Text>
+          </TouchableOpacity>
+        )}
       </View>
+      {customRange && (
+        <Text style={styles.rangeLabel}>{customRange.start.toLocaleDateString()} → {customRange.end.toLocaleDateString()}</Text>
+      )}
       {moodFilter && (
         <View style={styles.filterChipRow}>
           <TouchableOpacity style={styles.filterChip} onPress={()=>setMoodFilter(null)}>
@@ -172,23 +240,37 @@ export default function WellnessReport() {
       )}
       {tfEntries.length > 0 ? (
         <Card>
-          <View style={{ padding:4, flexDirection:'row', justifyContent:'space-between', marginBottom:4 }}>
-            <View style={{ flex:1 }}>
-              <Text style={styles.statLabel}>Avg Stress</Text>
-              <Text style={styles.statValue}>{avgStress}</Text>
-            </View>
-            <View style={{ flex:1 }}>
-              <Text style={styles.statLabel}>Top Mood</Text>
-              <Text style={styles.statValue}>{topMood? `${topMood[0]} (${topMood[1]})`:'-'}</Text>
-            </View>
-            <View style={{ flex:1 }}>
-              <Text style={styles.statLabel}>Streak</Text>
-              <Text style={styles.statValue}>{streak}d</Text>
-            </View>
+          <View style={{ flexDirection:'row', flexWrap:'wrap', marginBottom:6 }}>
+            <View style={styles.statBlock}><Text style={styles.statLabel}>Avg</Text><Text style={styles.statValue}>{avgStress}</Text></View>
+            <View style={styles.statBlock}><Text style={styles.statLabel}>Median</Text><Text style={styles.statValue}>{median}</Text></View>
+            <View style={styles.statBlock}><Text style={styles.statLabel}>Min–Max</Text><Text style={styles.statValue}>{minStress}-{maxStress}</Text></View>
+            <View style={styles.statBlock}><Text style={styles.statLabel}>{moodFilter? 'Streak (Mood)':'Streak'}</Text><Text style={styles.statValue}>{streak}d</Text></View>
+            <View style={styles.statBlock}><Text style={styles.statLabel}>Top Mood</Text><Text style={styles.statValue}>{topMood? `${topMood[0]}(${topMood[1]})`:'-'}</Text></View>
+            <TouchableOpacity style={[styles.shareBtn]} onPress={()=>{
+              const header = customRange ? `Custom Range ${customRange.start.toLocaleDateString()} - ${customRange.end.toLocaleDateString()}` : `${timeframe} Day Window`;
+              const freqLines = Object.entries(moodFreq).sort((a,b)=>b[1]-a[1]).map(([m,c])=>`- ${m}: ${c}`).join('\n');
+              const md = `**Wellness Stats**\n${header}\n\n**Avg:** ${avgStress}\n**Median:** ${median}\n**Min–Max:** ${minStress}-${maxStress}\n**Streak${moodFilter?' (Mood)':''}:** ${streak}d\n**Top Mood:** ${topMood? topMood[0]+' '+topMood[1]: '-'}\n\n**Mood Frequency**\n${freqLines}`;
+              Share.share({ message: md });
+            }}>
+              <Text style={styles.shareBtnText}>Share</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.shareBtn,{ backgroundColor:'#43A047', marginLeft:8 }]} onPress={()=>{
+              const headerLine = customRange ? `Custom Range ${customRange.start.toLocaleDateString()} - ${customRange.end.toLocaleDateString()}` : `${timeframe} Day Window`;
+              const rows = filteredTf.filter(e=>e.createdAt?.seconds).map(e=>{
+                const dIso = new Date(e.createdAt.seconds*1000).toISOString();
+                const noteLen = e.note? e.note.length : 0;
+                const mood = (e.mood||'').replace(/,/g,' ');
+                return `${dIso},${mood},${e.stress},${noteLen}`;
+              });
+              const csv = ['date,mood,stress,noteLength', ...rows].join('\n');
+              Share.share({ message: `${headerLine}\n${csv}` });
+            }}>
+              <Text style={styles.shareBtnText}>CSV</Text>
+            </TouchableOpacity>
           </View>
           <Animated.View style={{ opacity: chartFade }}>
             <LineChart
-              data={chartData}
+              data={animatedChartData || fullChartData}
               width={Dimensions.get("window").width - 32}
               height={180}
               chartConfig={{
@@ -205,7 +287,7 @@ export default function WellnessReport() {
             />
           </Animated.View>
           {Object.keys(moodFreq).length > 0 && (
-            <View style={{ marginTop:12, alignItems:'center' }}>
+            <Animated.View style={{ marginTop:12, alignItems:'center', transform:[{ scale: pieAnim.interpolate({ inputRange:[0,1], outputRange:[0.85,1] }) }], opacity: pieAnim }}>
               <Text style={[styles.statLabel,{ alignSelf:'flex-start', marginBottom:4 }]}>Mood Distribution</Text>
               <PieChart
                 data={Object.entries(moodFreq).map(([m,c],i)=>({
@@ -224,7 +306,7 @@ export default function WellnessReport() {
                 paddingLeft={'8'}
                 absolute
               />
-            </View>
+            </Animated.View>
           )}
         </Card>
   ) : <Text style={styles.label}>No data yet.</Text>}
@@ -233,6 +315,7 @@ export default function WellnessReport() {
   );
 
   return (
+    <>
     <GradientBackground>
     <FlatList
       style={styles.container}
@@ -294,6 +377,46 @@ export default function WellnessReport() {
     </View>
   </Modal>
   </GradientBackground>
+  <Modal visible={rangeModal} transparent animationType="fade" onRequestClose={()=>setRangeModal(false)}>
+    <View style={styles.modalBackdrop}>
+      <View style={[styles.modalCard,{ width:'100%', maxWidth:360 }]}>        
+        <Text style={styles.modalTitle}>Select Date Range</Text>
+        <Text style={styles.modalLabel}>Start</Text>
+        <TouchableOpacity style={styles.rangeBtn} onPress={()=>setRangePicking('start')}><Text style={styles.rangeBtnText}>{customRange?.start? customRange.start.toLocaleDateString(): 'Pick start date'}</Text></TouchableOpacity>
+        <Text style={styles.modalLabel}>End</Text>
+        <TouchableOpacity style={styles.rangeBtn} onPress={()=>setRangePicking('end')}><Text style={styles.rangeBtnText}>{customRange?.end? customRange.end.toLocaleDateString(): 'Pick end date'}</Text></TouchableOpacity>
+        {(rangePicking==='start' || rangePicking==='end') && (
+          <DateTimePicker
+            value={(rangePicking==='start' ? (customRange?.start|| new Date()) : (customRange?.end || new Date()))}
+            mode="date"
+            display={Platform.OS==='ios'? 'spinner':'spinner'}
+            maximumDate={new Date()}
+            onChange={(event, selected)=>{
+              // Handle cancel / dismiss
+              if(event.type === 'dismissed') { setRangePicking(null); return; }
+              if(!selected) return;
+              const today = new Date(); today.setHours(0,0,0,0);
+              const chosen = new Date(selected.getFullYear(), selected.getMonth(), selected.getDate());
+              if(chosen > today){ Alert.alert('Invalid Date','Cannot select a future date.'); return; }
+              setCustomRange(prev => {
+                const base = prev? { ...prev } : { start: chosen, end: chosen };
+                if(rangePicking==='start') base.start = chosen; else base.end = chosen;
+                if(base.end < base.start) base.end = base.start;
+                return base;
+              });
+              // On Android we manually close after a selection; on iOS keep open until user taps Apply (optional UX)
+              if(Platform.OS==='android') setRangePicking(null);
+            }}
+          />
+        )}
+        <View style={{ flexDirection:'row', justifyContent:'flex-end', marginTop:12, gap:12 }}>
+          <TouchableOpacity style={[styles.actionBtn,{ backgroundColor:'#90A4AE'}]} onPress={()=>setRangeModal(false)}><Text style={styles.actionText}>Close</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.actionBtn,{ backgroundColor:'#0288D1'}]} onPress={()=>{ if(customRange){ AsyncStorage.setItem('report_range_start', customRange.start.toISOString()); AsyncStorage.setItem('report_range_end', customRange.end.toISOString()); } setRangeModal(false); }}><Text style={styles.actionText}>Apply</Text></TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  </Modal>
+  </>
   );
 }
 
@@ -327,6 +450,9 @@ Object.assign(styles, {
   timeBtnTextActive:{ color:'#fff' },
   statLabel:{ fontSize:11, color:'#0277BD', fontWeight:'600' },
   statValue:{ fontSize:14, fontWeight:'700', color:'#01579B', marginTop:2 },
+  statBlock:{ width:'33%', marginBottom:6 },
+  shareBtn:{ backgroundColor:'#0288D1', paddingHorizontal:12, paddingVertical:6, borderRadius:8, alignSelf:'flex-start', marginTop:4 },
+  shareBtnText:{ color:'#fff', fontSize:12, fontWeight:'600' },
   noteHeaderRow:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginTop:8 },
   previewToggleRow:{ flexDirection:'row', alignItems:'center', gap:6 },
   previewToggleLabel:{ fontSize:12, color:'#01579B', marginRight:4 },
@@ -336,4 +462,9 @@ Object.assign(styles, {
   filterChipRow:{ flexDirection:'row', marginBottom:8 },
   filterChip:{ backgroundColor:'#0288D1', paddingHorizontal:12, paddingVertical:6, borderRadius:20 },
   filterChipText:{ color:'#fff', fontSize:12, fontWeight:'600' }
+});
+Object.assign(styles, {
+  rangeLabel:{ fontSize:12, color:'#01579B', marginBottom:6 },
+  rangeBtn:{ backgroundColor:'#E1F5FE', padding:10, borderRadius:8, marginTop:4 },
+  rangeBtnText:{ color:'#01579B', fontWeight:'600' }
 });

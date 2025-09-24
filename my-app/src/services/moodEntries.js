@@ -1,5 +1,6 @@
 // Mood Entries Service: CRUD + encryption + offline queue
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DeviceEventEmitter } from 'react-native';
 import { db, auth } from '../../firebase/firebaseConfig';
 import { doc, setDoc, updateDoc, deleteDoc, serverTimestamp, collection, getDocs, query, orderBy, limit, startAfter, where, Timestamp } from 'firebase/firestore';
 import CryptoJS from 'crypto-js';
@@ -17,6 +18,15 @@ function getLegacyKeyIv(uid){
 const SECURE_KEY_ID = 'secure_mood_key_v1'; // base64 encoded 32 random bytes
 const SECURE_KEY_CACHE_KEY = 'secure_mood_key_cache_b64';
 let memoryKey = null;
+const LOCAL_ONLY_KEY = 'privacy_local_only_v1';
+async function isLocalOnly(){
+  try { const v = await AsyncStorage.getItem(LOCAL_ONLY_KEY); return v === '1'; } catch { return false; }
+}
+export async function setLocalOnlyMode(enabled){
+  try { await AsyncStorage.setItem(LOCAL_ONLY_KEY, enabled? '1':'0'); } catch {}
+  DeviceEventEmitter.emit('local-only-changed', { enabled });
+}
+export async function getLocalOnlyMode(){ return isLocalOnly(); }
 async function getOrCreateSecureKey(){
   if(memoryKey) return memoryKey;
   let k = await SecureStore.getItemAsync(SECURE_KEY_ID);
@@ -106,10 +116,12 @@ export async function createMoodEntry({ mood, stress, note }){
   const { cipher, iv, encVer, alg } = await encryptV2(note || '');
   const id = `${Date.now()}`;
   const payload = { mood, stress, noteCipher: cipher, noteIv: iv, encVer, noteAlg: alg, createdAt: serverTimestamp() };
-  try {
-    await setDoc(doc(db, `users/${uid}/moods`, id), payload);
-  } catch(e){
+  if(await isLocalOnly()){
+    // queue only (simulate offline) with concrete date
     await enqueue({ op:'create', id, payload: { ...payload, createdAt: new Date() } });
+  } else {
+    try { await setDoc(doc(db, `users/${uid}/moods`, id), payload); }
+    catch(e){ await enqueue({ op:'create', id, payload: { ...payload, createdAt: new Date() } }); }
   }
   return id;
 }
@@ -124,14 +136,22 @@ export async function updateMoodEntry(id, { mood, stress, note, legacyToV2=false
     const { cipher, iv, encVer, alg } = await encryptV2(note || '');
     payload = { mood, stress, noteCipher: cipher, noteIv: iv, encVer, noteAlg: alg };
   }
-  try { await updateDoc(doc(db, `users/${uid}/moods`, id), payload); }
-  catch(e){ await enqueue({ op:'update', id, payload }); }
+  if(await isLocalOnly()){
+    await enqueue({ op:'update', id, payload });
+  } else {
+    try { await updateDoc(doc(db, `users/${uid}/moods`, id), payload); }
+    catch(e){ await enqueue({ op:'update', id, payload }); }
+  }
 }
 
 export async function deleteMoodEntry(id){
   const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');
-  try{ await deleteDoc(doc(db, `users/${uid}/moods`, id)); }
-  catch(e){ await enqueue({ op:'delete', id, payload:{} }); }
+  if(await isLocalOnly()){
+    await enqueue({ op:'delete', id, payload:{} });
+  } else {
+    try{ await deleteDoc(doc(db, `users/${uid}/moods`, id)); }
+    catch(e){ await enqueue({ op:'delete', id, payload:{} }); }
+  }
 }
 
 export async function listMoodEntriesPage({ pageSize=20, after=null }){
@@ -160,6 +180,22 @@ export async function listMoodEntriesSince({ days=7 }){
   return docs; // array of DocumentSnapshots
 }
 
+// Between inclusive start/end (Date objects with time 00:00 recommended)
+export async function listMoodEntriesBetween({ startDate, endDate }){
+  const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');
+  if(!startDate || !endDate) return [];
+  const startTs = Timestamp.fromDate(startDate);
+  // end inclusive -> move to end of day by adding 23:59:59.999
+  const endBoundary = new Date(endDate.getTime());
+  endBoundary.setHours(23,59,59,999);
+  const endTs = Timestamp.fromDate(endBoundary);
+  const qRef = query(collection(db, `users/${uid}/moods`), where('createdAt','>=', startTs), where('createdAt','<=', endTs), orderBy('createdAt','asc'));
+  const snap = await getDocs(qRef);
+  const docs = [];
+  snap.forEach(d => docs.push(d));
+  return docs;
+}
+
 export async function decryptEntry(uid, entry){
   // v2 path
   if(entry.encVer === 2 && entry.noteCipher && entry.noteIv){
@@ -173,4 +209,89 @@ export async function decryptEntry(uid, entry){
     const note = CryptoJS.AES.decrypt(entry.note, key, { iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }).toString(CryptoJS.enc.Utf8) || '';
     return { ...entry, note, legacy:true };
   } catch { return { ...entry, note:'', legacy:true }; }
+}
+
+// Export: fetch ALL entries (paginated manually) decrypt and return plain objects
+export async function exportAllMoodEntries(){
+  const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');
+  // naive full collection scan ordered by createdAt asc
+  const qRef = query(collection(db, `users/${uid}/moods`), orderBy('createdAt','asc'));
+  const snap = await getDocs(qRef);
+  const out = [];
+  for(const d of snap.docs){
+    const base = { id:d.id, ...d.data() };
+    const dec = await decryptEntry(uid, base);
+    out.push({
+      id: dec.id,
+      mood: dec.mood,
+      stress: dec.stress,
+      note: dec.note || '',
+      createdAt: dec.createdAt?.seconds ? new Date(dec.createdAt.seconds*1000).toISOString() : null,
+      encVer: dec.encVer || 2,
+      legacy: !!dec.legacy
+    });
+  }
+  return out;
+}
+
+export function buildMoodCSV(rows){
+  const header = 'id,date,mood,stress,noteLength,encVer,legacy';
+  const lines = rows.map(r=>{
+    const date = r.createdAt || '';
+    const mood = (r.mood||'').replace(/,/g,' ');
+    const noteLen = r.note? r.note.length:0;
+    return `${r.id},${date},${mood},${r.stress},${noteLen},${r.encVer},${r.legacy}`;
+  });
+  return [header, ...lines].join('\n');
+}
+
+export async function deleteAllMoodEntries(){
+  const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');
+  const qRef = query(collection(db, `users/${uid}/moods`));
+  const snap = await getDocs(qRef);
+  // Firestore has no multi-delete in one request without batch; small batches here
+  const batchSize = 400; // safety limit
+  let current = [];
+  for(const d of snap.docs){
+    current.push(d);
+    if(current.length === batchSize){
+      await Promise.all(current.map(docSnap=> deleteDoc(doc(db, `users/${uid}/moods`, docSnap.id))));
+      current = [];
+    }
+  }
+  if(current.length){
+    await Promise.all(current.map(docSnap=> deleteDoc(doc(db, `users/${uid}/moods`, docSnap.id))));
+  }
+  // also clear offline queue since stale operations might recreate data
+  try { await AsyncStorage.removeItem('offlineMoodQueue'); } catch {}
+}
+
+// Lightweight summary: latest mood entry & streak (consecutive days including today)
+export async function getMoodSummary({ streakLookbackDays = 14 } = {}){
+  const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');
+  // Fetch last N days ascending
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  start.setDate(start.getDate() - (streakLookbackDays - 1));
+  const startTs = Timestamp.fromDate(start);
+  const qRef = query(collection(db, `users/${uid}/moods`), where('createdAt','>=', startTs), orderBy('createdAt','asc'));
+  const snap = await getDocs(qRef);
+  const items = [];
+  snap.forEach(d=> items.push({ id:d.id, ...d.data() }));
+  // Latest
+  let latest = null;
+  if(items.length){
+    const last = items[items.length-1];
+    latest = { id:last.id, mood:last.mood, stress:last.stress, createdAt: last.createdAt?.seconds? new Date(last.createdAt.seconds*1000): null };
+  }
+  // Streak calc: count back from today consecutive days that have at least one entry
+  const byDay = new Map();
+  items.forEach(it=>{ if(it.createdAt?.seconds){ const dt = new Date(it.createdAt.seconds*1000); const key = dt.toISOString().slice(0,10); byDay.set(key, true); }});
+  let streak = 0;
+  for(let i=0; i<streakLookbackDays; i++){
+    const d = new Date(); d.setDate(d.getDate()-i);
+    const key = d.toISOString().slice(0,10);
+    if(byDay.has(key)) streak++; else break;
+  }
+  return { latest, streak };
 }

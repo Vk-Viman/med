@@ -1,5 +1,6 @@
-﻿import React, { useState } from "react";
-import { View, Text, StyleSheet, Alert } from "react-native";
+﻿import React, { useState, useEffect } from "react";
+import { View, Text, StyleSheet, Alert, BackHandler } from "react-native";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as LocalAuthentication from "expo-local-authentication";
 import PrimaryButton from "../src/components/PrimaryButton";
 import { useRouter } from "expo-router";
@@ -7,6 +8,18 @@ import { useRouter } from "expo-router";
 export default function BiometricLogin() {
   const [checking, setChecking] = useState(false);
   const router = useRouter();
+  useEffect(()=>{
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      // If we can go back safely, allow default behavior via returning false
+      // but expo-router's navigation may not have stack, so fallback
+      try {
+        // We purposely route to login instead of leaving app when biometric screen is a lock state
+        router.replace('/login');
+      } catch {}
+      return true; // we've handled it
+    });
+    return ()=> sub.remove();
+  },[]);
 
   const handleBiometric = async () => {
     setChecking(true);
@@ -16,8 +29,14 @@ export default function BiometricLogin() {
       if (!hasHardware || !enrolled) throw new Error("No biometric enrolled");
       const result = await LocalAuthentication.authenticateAsync({ promptMessage: "Login with biometrics" });
       if (result.success) {
-        Alert.alert("Success", "Authenticated!");
-        router.replace("/login");
+        // Attempt resume
+  // Default target to main tabs root
+  let target = '/(tabs)';
+        try {
+          const stored = await AsyncStorage.getItem('last_route_before_lock_v1');
+          if(stored && !stored.includes('biometricLogin') && !stored.includes('login')) target = stored;
+        } catch {}
+  router.replace(target);
       } else {
         Alert.alert("Failed", "Authentication failed.");
       }
