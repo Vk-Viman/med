@@ -1,44 +1,86 @@
 ﻿import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, FlatList } from "react-native";
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, TextInput, Alert, ActivityIndicator, RefreshControl } from "react-native";
 import GradientBackground from "../src/components/GradientBackground";
 import { db, auth } from "../firebase/firebaseConfig";
-import { collection, query, orderBy, getDocs } from "firebase/firestore";
+import { collection, query, orderBy, getDocs } from "firebase/firestore"; // legacy direct fetch kept for chart initial version
 import { LineChart } from "react-native-chart-kit";
 import CryptoJS from "crypto-js";
+import { listMoodEntriesPage, decryptEntry, updateMoodEntry, deleteMoodEntry, flushQueue } from "../src/services/moodEntries";
 import { Dimensions } from "react-native";
 import Card from "../src/components/Card";
 
 export default function WellnessReport() {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    const fetchEntries = async () => {
-      const uid = auth.currentUser?.uid;
-      if (!uid) return;
-      const q = query(collection(db, `users/${uid}/moods`), orderBy("createdAt", "desc"));
-      const snap = await getDocs(q);
-      const data = [];
-      snap.forEach(doc => {
-        const d = doc.data();
-        let note = "";
-        try {
-          const key = CryptoJS.enc.Hex.parse(CryptoJS.SHA256(uid + "-key").toString());
-          const iv = CryptoJS.enc.Hex.parse(CryptoJS.SHA256(uid + "-iv").toString().slice(0, 32));
-          note = CryptoJS.AES.decrypt(d.note, key, { iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }).toString(CryptoJS.enc.Utf8);
-        } catch {}
-        data.push({ ...d, note, id: doc.id });
-      });
-      setEntries(data);
-      setLoading(false);
-    };
-    fetchEntries();
-  }, []);
+  const [pageCursor, setPageCursor] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [editModal, setEditModal] = useState(false);
+  const [editItem, setEditItem] = useState(null);
+  const [editMood, setEditMood] = useState("");
+  const [editStress, setEditStress] = useState(0);
+  const [editNote, setEditNote] = useState("");
+  const loadPage = async (reset=false) => {
+    const uid = auth.currentUser?.uid; if(!uid) return;
+    if(reset){ setLoading(true); }
+    try{
+      const { docs, last } = await listMoodEntriesPage({ pageSize:20, after: reset? null : pageCursor });
+      const mapped = docs.map(d => decryptEntry(uid, { ...d.data(), id: d.id }));
+      setEntries(prev => reset? mapped : [...prev, ...mapped]);
+      setPageCursor(last);
+    }catch(e){
+      Alert.alert('Error', e.message);
+    } finally {
+      if(reset) setLoading(false);
+      setLoadingMore(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => { flushQueue(); loadPage(true); }, []);
+
+  const onRefresh = () => { setRefreshing(true); setPageCursor(null); loadPage(true); };
+
+  const loadMore = () => {
+    if(loadingMore || !pageCursor) return;
+    setLoadingMore(true);
+    loadPage(false);
+  };
+
+  const openEdit = (item) => {
+    setEditItem(item);
+    setEditMood(item.mood);
+    setEditStress(item.stress);
+    setEditNote(item.note);
+    setEditModal(true);
+  };
+
+  const saveEdit = async () => {
+    try{
+      await updateMoodEntry(editItem.id, { mood: editMood, stress: editStress, note: editNote });
+      await flushQueue();
+      setEntries(list => list.map(e => e.id === editItem.id ? { ...e, mood: editMood, stress: editStress, note: editNote } : e));
+      setEditModal(false);
+    }catch(e){ Alert.alert('Error', e.message); }
+  };
+
+  const confirmDelete = (item) => {
+    Alert.alert('Delete Entry', 'Are you sure?', [
+      { text: 'Cancel', style:'cancel' },
+      { text: 'Delete', style:'destructive', onPress: () => performDelete(item) }
+    ]);
+  };
+
+  const performDelete = async (item) => {
+    try{
+      await deleteMoodEntry(item.id); await flushQueue();
+      setEntries(list => list.filter(e => e.id !== item.id));
+    }catch(e){ Alert.alert('Error', e.message); }
+  };
 
   const chartData = {
-    labels: entries.slice(0, 7).map(e => new Date(e.createdAt?.seconds * 1000).toLocaleDateString()),
-    datasets: [
-      { data: entries.slice(0, 7).map(e => e.stress || 0) },
-    ],
+    labels: entries.slice(0, 7).map(e => e.createdAt?.seconds ? new Date(e.createdAt.seconds * 1000).toLocaleDateString() : ''),
+    datasets: [ { data: entries.slice(0, 7).map(e => e.stress || 0) } ],
   };
 
   const ListHeader = () => (
@@ -76,14 +118,38 @@ export default function WellnessReport() {
       keyExtractor={e => e.id}
       ListHeaderComponent={ListHeader}
       renderItem={({ item }) => (
-        <View style={styles.entry}>
+        <TouchableOpacity style={styles.entry} onPress={() => openEdit(item)} onLongPress={() => confirmDelete(item)} delayLongPress={500}>
           <Text style={styles.mood}>{item.mood} | Stress: {item.stress}</Text>
-          <Text style={styles.note}>{item.note}</Text>
-          <Text style={styles.date}>{new Date(item.createdAt?.seconds * 1000).toLocaleString()}</Text>
-        </View>
+          {!!item.note && <Text style={styles.note}>{item.note}</Text>}
+          <Text style={styles.date}>{item.createdAt?.seconds ? new Date(item.createdAt.seconds * 1000).toLocaleString() : ''}</Text>
+        </TouchableOpacity>
       )}
+      onEndReached={loadMore}
+      onEndReachedThreshold={0.2}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       contentContainerStyle={{ paddingBottom: 24 }}
+      ListFooterComponent={loadingMore ? <ActivityIndicator style={{ marginVertical: 12 }} /> : null}
   />
+  {loading && entries.length === 0 && (
+    <View style={styles.loadingOverlay}><ActivityIndicator size="large" color="#0288D1" /></View>
+  )}
+  <Modal visible={editModal} transparent animationType="fade" onRequestClose={() => setEditModal(false)}>
+    <View style={styles.modalBackdrop}>
+      <View style={styles.modalCard}>
+        <Text style={styles.modalTitle}>Edit Entry</Text>
+        <Text style={styles.modalLabel}>Mood</Text>
+        <TextInput value={editMood} onChangeText={setEditMood} style={styles.input} />
+        <Text style={styles.modalLabel}>Stress (0-10)</Text>
+        <TextInput value={String(editStress)} onChangeText={t=>setEditStress(Number(t)||0)} keyboardType="numeric" style={styles.input} />
+        <Text style={styles.modalLabel}>Note</Text>
+        <TextInput value={editNote} onChangeText={setEditNote} style={[styles.input,{height:80}]} multiline />
+        <View style={styles.modalActions}>
+          <TouchableOpacity style={[styles.actionBtn,{backgroundColor:'#B0BEC5'}]} onPress={()=>setEditModal(false)}><Text style={styles.actionText}>Cancel</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.actionBtn,{backgroundColor:'#0288D1'}]} onPress={saveEdit}><Text style={styles.actionText}>Save</Text></TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  </Modal>
   </GradientBackground>
   );
 }
@@ -97,4 +163,13 @@ const styles = StyleSheet.create({
   mood: { fontSize: 16, fontWeight: "600" },
   note: { fontSize: 15, color: "#01579B", marginVertical: 4 },
   date: { fontSize: 12, color: "#90A4AE" },
+  loadingOverlay:{ position:'absolute', top:0,left:0,right:0,bottom:0, alignItems:'center', justifyContent:'center' },
+  modalBackdrop:{ flex:1, backgroundColor:'rgba(0,0,0,0.4)', justifyContent:'center', padding:24 },
+  modalCard:{ backgroundColor:'#fff', borderRadius:16, padding:16 },
+  modalTitle:{ fontSize:18, fontWeight:'700', color:'#01579B', marginBottom:8 },
+  modalLabel:{ fontSize:14, fontWeight:'600', color:'#0277BD', marginTop:8 },
+  input:{ backgroundColor:'#F1F8FE', borderRadius:8, paddingHorizontal:10, paddingVertical:8, marginTop:4 },
+  modalActions:{ flexDirection:'row', justifyContent:'flex-end', marginTop:16, gap:12 },
+  actionBtn:{ paddingHorizontal:16, paddingVertical:10, borderRadius:8 },
+  actionText:{ color:'#fff', fontWeight:'600' }
 });

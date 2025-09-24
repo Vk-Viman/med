@@ -15,11 +15,13 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import GradientBackground from "../src/components/GradientBackground";
 import Slider from "@react-native-community/slider";
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from "expo-router";
 import { db, auth } from "../firebase/firebaseConfig";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { serverTimestamp } from "firebase/firestore"; // kept if still needed elsewhere
 import PrimaryButton from "../src/components/PrimaryButton";
-import CryptoJS from "crypto-js";
+import CryptoJS from "crypto-js"; // legacy encryption retained for now
+import { createMoodEntry, flushQueue } from "../src/services/moodEntries";
 // Ensure CryptoJS uses secure RNG from crypto.getRandomValues
 try {
   const originalRandom = CryptoJS.lib.WordArray.random;
@@ -65,11 +67,14 @@ export default function MoodTracker() {
   const [mood, setMood] = useState(null); // key OR OTHER_KEY
   const [otherEmoji, setOtherEmoji] = useState("💫");
   const [stress, setStress] = useState(5);
+  const lastHapticStress = useRef(stress);
   const [note, setNote] = useState("");
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
-  const [tooltip, setTooltip] = useState(null); // {key, label, x}
+  const [tooltip, setTooltip] = useState(null); // {key, label}
+  const tooltipOpacity = useRef(new Animated.Value(0)).current;
+  const hideTooltipTimeout = useRef(null);
 
   // Animated scale map per mood key
   const scalesRef = useRef({});
@@ -96,19 +101,40 @@ export default function MoodTracker() {
     })();
   }, []);
 
-  // Persist selection changes
+  // Debounced persistence of mood & custom emoji
+  const debounceTimer = useRef(null);
+  const DEBOUNCE_MS = 500;
   useEffect(() => {
-    (async () => {
+    if (!mood) return; // nothing to persist
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(async () => {
       try {
-        if (mood) await AsyncStorage.setItem(STORAGE_KEY, mood);
+        await AsyncStorage.setItem(STORAGE_KEY, mood);
         if (mood === OTHER_KEY) await AsyncStorage.setItem(STORAGE_OTHER_EMOJI, otherEmoji);
       } catch {}
-    })();
+    }, DEBOUNCE_MS);
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
   }, [mood, otherEmoji]);
+
+  const flushPersistence = async () => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    if (!mood) return;
+    try {
+      await AsyncStorage.setItem(STORAGE_KEY, mood);
+      if (mood === OTHER_KEY) await AsyncStorage.setItem(STORAGE_OTHER_EMOJI, otherEmoji);
+    } catch {}
+  };
 
   const selectMood = (k) => {
     setMood(k);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Haptic variation: medium impact for standard moods, lighter for opening the picker
+    if (k === OTHER_KEY) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } else {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
     const scale = getScale(k);
     Animated.sequence([
       Animated.timing(scale, { toValue: 1.15, duration: 110, useNativeDriver: true }),
@@ -117,9 +143,17 @@ export default function MoodTracker() {
     if (k === OTHER_KEY) setShowPicker(true);
   };
 
+  const hideTooltip = () => {
+    Animated.timing(tooltipOpacity, { toValue: 0, duration: 180, useNativeDriver: true }).start(({ finished }) => {
+      if (finished) setTooltip((t) => (t ? null : t));
+    });
+  };
+
   const onLongPress = (m) => {
+    if (hideTooltipTimeout.current) clearTimeout(hideTooltipTimeout.current);
     setTooltip({ key: m.key, label: m.label });
-    setTimeout(() => setTooltip((t) => (t && t.key === m.key ? null : t)), 1200);
+    Animated.timing(tooltipOpacity, { toValue: 1, duration: 140, useNativeDriver: true }).start();
+    hideTooltipTimeout.current = setTimeout(() => hideTooltip(), 1200);
   };
 
   const chooseOther = (emoji) => {
@@ -132,18 +166,10 @@ export default function MoodTracker() {
     if (!mood) return Alert.alert("Select your mood");
     setLoading(true);
     try {
-      const uid = auth.currentUser?.uid;
-      if (!uid) throw new Error("Not logged in");
-  // Derive deterministic key and iv from uid to avoid RNG in Expo Go
-  const key = CryptoJS.enc.Hex.parse(CryptoJS.SHA256(uid + "-key").toString()); // 32 bytes
-  const iv = CryptoJS.enc.Hex.parse(CryptoJS.SHA256(uid + "-iv").toString().slice(0, 32)); // 16 bytes
-  const encryptedNote = CryptoJS.AES.encrypt(note, key, { iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }).toString();
-      await setDoc(doc(db, `users/${uid}/moods`, `${Date.now()}`), {
-        mood,
-        stress,
-        note: encryptedNote,
-        createdAt: serverTimestamp(),
-      });
+      await flushPersistence();
+      await createMoodEntry({ mood, stress, note });
+      await flushQueue(); // attempt to send any queued operations
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setMood(null); setStress(5); setNote("");
       Alert.alert("Saved", "Your entry was saved.");
       router.back();
@@ -172,23 +198,51 @@ export default function MoodTracker() {
                 <Text style={[styles.mood, { fontSize, lineHeight: fontSize + 4 }]}>{m.emoji}</Text>
               </Animated.View>
               {tooltip && tooltip.key === m.key && (
-                <View style={styles.tooltip}><Text style={styles.tooltipText}>{m.label}</Text></View>
+                <Animated.View style={[styles.tooltip, {
+                  opacity: tooltipOpacity,
+                  transform: [{ translateY: tooltipOpacity.interpolate({ inputRange: [0,1], outputRange: [4,0] }) }]
+                }]} pointerEvents="none">
+                  <Text style={styles.tooltipText}>{m.label}</Text>
+                </Animated.View>
               )}
             </TouchableOpacity>
           );
         })}
       </View>
       <Text style={styles.label}>Stress Level: {stress}</Text>
-      <Slider
-        style={{ width: "100%", height: 40 }}
-        minimumValue={0}
-        maximumValue={10}
-        step={1}
-        value={stress}
-        onValueChange={setStress}
-        minimumTrackTintColor="#0288D1"
-        maximumTrackTintColor="#B3E5FC"
-      />
+      <View style={styles.sliderBlock}>
+        <LinearGradient
+          colors={["#4FC3F7","#29B6F6","#0288D1","#01579B"]}
+          start={{ x:0, y:0 }} end={{ x:1, y:0 }}
+          style={styles.gradientTrack}
+        >
+          <Slider
+            style={styles.slider}
+            minimumValue={0}
+            maximumValue={10}
+            step={1}
+            value={stress}
+            onValueChange={(v)=>{
+              setStress(v);
+              // Haptic tiers only when value changes and skip rapid repeats
+              if (lastHapticStress.current !== v) {
+                let style = Haptics.ImpactFeedbackStyle.Light;
+                if (v >= 7) style = Haptics.ImpactFeedbackStyle.Heavy; else if (v >=4) style = Haptics.ImpactFeedbackStyle.Medium;
+                Haptics.impactAsync(style);
+                lastHapticStress.current = v;
+              }
+            }}
+            minimumTrackTintColor="transparent"
+            maximumTrackTintColor="transparent"
+            thumbTintColor="#FFFFFF"
+          />
+        </LinearGradient>
+        <View style={styles.ticksRow}>
+          {[0,2,4,6,8,10].map(n => (
+            <Text key={n} style={[styles.tickLabel, n===stress && styles.tickActive]}>{n}</Text>
+          ))}
+        </View>
+      </View>
       <Text style={styles.label}>Journal Note</Text>
       <TextInput
         style={styles.input}
@@ -247,6 +301,12 @@ const styles = StyleSheet.create({
   tooltip: { position: 'absolute', top: -30, left: '50%', transform: [{ translateX: -30 }], backgroundColor: '#01579B', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
   tooltipText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   label: { fontSize: 16, color: "#0277BD", marginBottom: 8 },
+  sliderBlock:{ marginBottom:18 },
+  gradientTrack:{ borderRadius:12, paddingHorizontal:4, justifyContent:'center', height:48 },
+  slider:{ width:'100%', height:40 },
+  ticksRow:{ flexDirection:'row', justifyContent:'space-between', marginTop:4 },
+  tickLabel:{ fontSize:12, color:'#0277BD', width:20, textAlign:'center' },
+  tickActive:{ fontWeight:'700', color:'#01579B' },
   input: { backgroundColor: "#fff", borderRadius: 8, padding: 12, minHeight: 60, marginBottom: 18 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'center', padding: 24 },
   modalCard: { backgroundColor: '#fff', borderRadius: 20, padding: 16, maxHeight: '70%' },
