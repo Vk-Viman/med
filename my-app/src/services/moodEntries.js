@@ -353,6 +353,28 @@ export async function exportAllMoodEntries(){
   return out;
 }
 
+// Export: only entries within inclusive date range (Date objects, recommended 00:00 for start)
+export async function exportMoodEntriesBetween({ startDate, endDate }){
+  const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');
+  if(!startDate || !endDate) return [];
+  const docs = await listMoodEntriesBetween({ startDate, endDate });
+  const out = [];
+  for(const d of docs){
+    const base = { id:d.id, ...d.data() };
+    const dec = await decryptEntry(uid, base);
+    out.push({
+      id: dec.id,
+      mood: dec.mood,
+      stress: dec.stress,
+      note: dec.note || '',
+      createdAt: dec.createdAt?.seconds ? new Date(dec.createdAt.seconds*1000).toISOString() : null,
+      encVer: dec.encVer || 2,
+      legacy: !!dec.legacy
+    });
+  }
+  return out;
+}
+
 export function buildMoodCSV(rows){
   const header = 'id,date,mood,stress,noteLength,encVer,legacy';
   const lines = rows.map(r=>{

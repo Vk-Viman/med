@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useState, useRef } from "react";
-import { View, Text, StyleSheet, Alert, Switch, TouchableOpacity, Share, DeviceEventEmitter, SectionList, Image, AccessibilityInfo, InteractionManager, findNodeHandle } from "react-native";
+import { View, Text, StyleSheet, Alert, Switch, TouchableOpacity, Share, DeviceEventEmitter, SectionList, Image, AccessibilityInfo, InteractionManager, findNodeHandle, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
@@ -8,12 +8,16 @@ import { auth } from "../firebase/firebaseConfig";
 import { signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword, deleteUser, sendEmailVerification } from "firebase/auth";
 import { spacing, radius, shadow } from "../src/theme";
 import { useTheme } from "../src/theme/ThemeProvider";
-import { exportAllMoodEntries, buildMoodCSV, buildMoodMarkdown, getLocalOnlyMode, setLocalOnlyMode, deleteAllMoodEntries, escrowEncryptDeviceKey, escrowDecryptDeviceKey, getEncryptionStatus, enablePassphraseProtection, disablePassphraseProtection, unlockWithPassphrase, lockEncryptionKey, migrateLegacyToV2, backfillMoodScores } from "../src/services/moodEntries";
+import { exportAllMoodEntries, exportMoodEntriesBetween, buildMoodCSV, buildMoodMarkdown, getLocalOnlyMode, setLocalOnlyMode, deleteAllMoodEntries, escrowEncryptDeviceKey, escrowDecryptDeviceKey, getEncryptionStatus, enablePassphraseProtection, disablePassphraseProtection, unlockWithPassphrase, lockEncryptionKey, migrateLegacyToV2, backfillMoodScores } from "../src/services/moodEntries";
 import { getUserProfile, updateUserProfile, ensureUserProfile, deleteUserProfile } from '../src/services/userProfile';
 import { bumpSessionEpoch } from '../src/services/userProfile';
 import { getHapticsEnabled, setHapticsEnabled, initHapticsPref } from '../src/utils/haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { DeviceEventEmitter as RNEmitter } from 'react-native';
+import * as FileSystem from 'expo-file-system';
+import * as FSLegacy from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 const BIOMETRIC_PREF_KEY = 'pref_biometric_enabled_v1';
 
@@ -62,6 +66,13 @@ export default function SettingsScreen() {
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [showConfirmPassphrase, setShowConfirmPassphrase] = useState(false);
   const [showImportPassphrase, setShowImportPassphrase] = useState(false);
+  // Export enhancements
+  const [rangeExporting, setRangeExporting] = useState(false);
+  const [rangeStart, setRangeStart] = useState(null);
+  const [rangeEnd, setRangeEnd] = useState(null);
+  const [rangePicking, setRangePicking] = useState(null); // 'start' | 'end'
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [androidDirUri, setAndroidDirUri] = useState(null);
   // Encryption management
   const [encStatus, setEncStatus] = useState({ passphraseProtected:false, algorithm:'', encVer:2 });
   const [encExpanded, setEncExpanded] = useState(false);
@@ -157,23 +168,146 @@ export default function SettingsScreen() {
   };
 
   // ===== Export =====
+  const saveToFileAndShare = async (filename, mimeType, content) => {
+    try {
+      let fileUri = '';
+      if(Platform.OS === 'android'){
+        const SAF = FileSystem.StorageAccessFramework;
+        if(SAF){
+          try{
+            let dirUri = androidDirUri;
+            if(!dirUri){
+              const perm = await SAF.requestDirectoryPermissionsAsync();
+              if(perm.granted){ dirUri = perm.directoryUri; try{ await AsyncStorage.setItem('android_export_dir_uri_v1', dirUri); }catch{} setAndroidDirUri(dirUri); }
+            }
+            if(!dirUri){
+              // User did not grant; share content only and return
+              await Share.share({ message: content });
+              return;
+            }
+            const uri = await SAF.createFileAsync(dirUri, filename, mimeType);
+            await FSLegacy.writeAsStringAsync(uri, content, { encoding: 'utf8' });
+            fileUri = uri;
+          }catch(e){
+            // SAF path failed; attempt app cache write as fallback
+            try{ await AsyncStorage.removeItem('android_export_dir_uri_v1'); }catch{}
+            setAndroidDirUri(null);
+            const base = (FileSystem.documentDirectory || FileSystem.cacheDirectory || '');
+            if(!base){ throw new Error('No writable directory available'); }
+            fileUri = `${base}${filename}`;
+            await FSLegacy.writeAsStringAsync(fileUri, content, { encoding: 'utf8' });
+          }
+        } else {
+          // No SAF available; use app storage or share content only
+          const base = (FileSystem.documentDirectory || FileSystem.cacheDirectory || '');
+          if(!base){ await Share.share({ message: content }); return; }
+          fileUri = `${base}${filename}`;
+          await FSLegacy.writeAsStringAsync(fileUri, content, { encoding: 'utf8' });
+        }
+      } else {
+        // iOS / others: write to app directory
+        const base = (FileSystem.documentDirectory || FileSystem.cacheDirectory || '');
+        if(!base){ await Share.share({ message: content }); return; }
+        fileUri = `${base}${filename}`;
+        await FSLegacy.writeAsStringAsync(fileUri, content, { encoding: 'utf8' });
+      }
+      // Normalize for sharing where needed
+      if(!fileUri.startsWith('file://') && !fileUri.startsWith('content://')){
+        fileUri = `file://${fileUri}`;
+      }
+      if(await Sharing.isAvailableAsync()){
+        await Sharing.shareAsync(fileUri, { UTI: mimeType, mimeType, dialogTitle: `Share ${filename}` });
+      } else {
+        await Share.share({ url: fileUri, message: `Export file: ${filename}` });
+      }
+    } catch(e){ Alert.alert('Export Failed', e.message); }
+  };
+
   const doExport = async (format) => {
     if(exporting) return; setExporting(true);
     try {
       const rows = await exportAllMoodEntries();
       if(!rows.length){ Alert.alert('Export','No entries to export.'); return; }
+      const ts = new Date();
+      const pad = (n)=> String(n).padStart(2,'0');
+      const stamp = `${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;
       if(format==='json'){
         const jsonStr = JSON.stringify({ exportedAt:new Date().toISOString(), count:rows.length, entries:rows }, null, 2);
-        await Share.share({ message: jsonStr });
+        await saveToFileAndShare(`moods_${stamp}.json`, 'application/json', jsonStr);
       } else if(format==='md') {
         const md = buildMoodMarkdown(rows);
-        await Share.share({ message: md });
+        await saveToFileAndShare(`moods_${stamp}.md`, 'text/markdown', md);
       } else {
         const csv = buildMoodCSV(rows);
-        await Share.share({ message: csv });
+        await saveToFileAndShare(`moods_${stamp}.csv`, 'text/csv', csv);
       }
     } catch(e){ Alert.alert('Export Failed', e.message); }
     finally { setExporting(false); }
+  };
+
+  useEffect(()=>{ (async()=>{ try { const uri = await AsyncStorage.getItem('android_export_dir_uri_v1'); if(uri) setAndroidDirUri(uri); } catch {} })(); },[]);
+
+  // Prefill date range to last 7 days for convenience
+  useEffect(()=>{
+    if(!rangeStart || !rangeEnd){
+      const today = new Date();
+      const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()-6);
+      const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      if(!rangeStart) setRangeStart(start);
+      if(!rangeEnd) setRangeEnd(end);
+    }
+  },[]);
+
+  const beginPickDate = (which) => { setRangePicking(which); setShowDatePicker(true); };
+
+  const onDatePicked = (event) => {
+    if(event?.type === 'dismissed'){ setShowDatePicker(false); return; }
+    const ts = event.nativeEvent?.timestamp ?? (event?.timestamp);
+    const date = ts ? new Date(ts) : new Date();
+    if(rangePicking === 'start'){ setRangeStart(new Date(date.getFullYear(), date.getMonth(), date.getDate())); }
+    if(rangePicking === 'end'){ setRangeEnd(new Date(date.getFullYear(), date.getMonth(), date.getDate())); }
+    setShowDatePicker(false); setRangePicking(null);
+  };
+
+  const doRangeExport = async (format) => {
+    if(rangeExporting) return; setRangeExporting(true);
+    try{
+      if(!rangeStart || !rangeEnd){ Alert.alert('Export','Pick both start and end dates.'); return; }
+      if(rangeEnd < rangeStart){ Alert.alert('Export','End date must be after start date.'); return; }
+      const rows = await exportMoodEntriesBetween({ startDate: rangeStart, endDate: rangeEnd });
+      if(!rows.length){ Alert.alert('Export','No entries in the selected range.'); return; }
+      const ts = new Date();
+      const pad = (n)=> String(n).padStart(2,'0');
+      const stamp = `${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;
+      const rangeTag = `${rangeStart.toISOString().slice(0,10)}_${rangeEnd.toISOString().slice(0,10)}`;
+      if(format==='json'){
+        const jsonStr = JSON.stringify({ exportedAt:new Date().toISOString(), range:{ start: rangeStart.toISOString(), end: rangeEnd.toISOString() }, count:rows.length, entries:rows }, null, 2);
+        await saveToFileAndShare(`moods_${rangeTag}_${stamp}.json`, 'application/json', jsonStr);
+      } else if(format==='md'){
+        const md = buildMoodMarkdown(rows);
+        await saveToFileAndShare(`moods_${rangeTag}_${stamp}.md`, 'text/markdown', md);
+      } else {
+        const csv = buildMoodCSV(rows);
+        await saveToFileAndShare(`moods_${rangeTag}_${stamp}.csv`, 'text/csv', csv);
+      }
+    }catch(e){ Alert.alert('Export Failed', e.message); }
+    finally{ setRangeExporting(false); }
+  };
+
+  const rePickAndroidFolder = async () => {
+    if(!(Platform.OS === 'android' && FileSystem.StorageAccessFramework)){
+      Alert.alert('Export Folder', 'Folder selection is only needed on Android.');
+      return;
+    }
+    try{
+      const perm = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+      if(perm.granted){
+        const dirUri = perm.directoryUri;
+        setAndroidDirUri(dirUri);
+        try{ await AsyncStorage.setItem('android_export_dir_uri_v1', dirUri); }catch{}
+        Alert.alert('Export Folder', 'Export folder updated.');
+      }
+    }catch(e){ Alert.alert('Export Folder', e.message); }
   };
 
   // ===== Local Only Toggle =====
@@ -359,6 +493,7 @@ export default function SettingsScreen() {
       title: 'Data Management',
       data: [
         { key:'export', type:'action', label: exporting? 'Exporting...' : 'Export Data', disabled: exporting, onPress: ()=>{ if(exporting) return; Alert.alert('Export Format','Choose a format to export your mood entries.',[ { text:'JSON', onPress:()=>doExport('json') }, { text:'CSV', onPress:()=>doExport('csv') }, { text:'Markdown', onPress:()=>doExport('md') }, { text:'Cancel', style:'cancel' } ]);} },
+        { key:'exportRange', type:'expand', label: rangeExporting? 'Exporting...' : 'Export Date Range', onToggle: ()=>{}, expanded: true, content:'exportRange' },
         { key:'backfillMood', type:'action', label:'Backfill Mood Scores (90d)', onPress: async()=>{
             try { const res = await backfillMoodScores({ days: 90 });
               Alert.alert('Backfill Complete', `Updated ${res.updated} of ${res.scanned} entries in last ${res.days} days.`);
@@ -463,6 +598,54 @@ export default function SettingsScreen() {
               <Text style={styles.subLabel}>Confirm New Password</Text>
               <Input value={confirmPass} onChangeText={setConfirmPass} secureTextEntry />
               <PrimaryButton title={changingPass? 'Updating...' : 'Update Password'} disabled={changingPass} onPress={handleChangePassword} fullWidth />
+            </View>
+          )}
+          {item.expanded && item.content === 'exportRange' && (
+            <View style={styles.boxInner}>
+              {Platform.OS === 'android' && (
+                <>
+                  <Text style={styles.noteText}>{FileSystem.StorageAccessFramework ? (androidDirUri ? 'Saving to your chosen folder.' : 'Tip: On first save, pick your Downloads folder to remember it.') : 'Folder picker not available in this environment. Files will be saved to cache and shared.'}</Text>
+                  {FileSystem.StorageAccessFramework && (
+                    <>
+                      <View style={{ height:6 }} />
+                      <PrimaryButton title='Change Export Folder' onPress={rePickAndroidFolder} variant='secondary' fullWidth />
+                    </>
+                  )}
+                </>
+              )}
+              <View style={[styles.rowBetween, { marginTop:8 }]}>
+                <View style={{ flex:1, marginRight:8 }}>
+                  <Text style={styles.subLabel}>Start Date</Text>
+                  {Platform.OS === 'ios' ? (
+                    <DateTimePicker mode='date' display='inline' value={rangeStart || new Date()} onChange={(e, d)=>{ if(d){ setRangeStart(new Date(d.getFullYear(), d.getMonth(), d.getDate())); } }} />
+                  ) : (
+                    <PrimaryButton title={rangeStart? rangeStart.toDateString() : 'Pick Start'} onPress={()=>beginPickDate('start')} variant='secondary' fullWidth />
+                  )}
+                </View>
+                <View style={{ flex:1, marginLeft:8 }}>
+                  <Text style={styles.subLabel}>End Date</Text>
+                  {Platform.OS === 'ios' ? (
+                    <DateTimePicker mode='date' display='inline' value={rangeEnd || new Date()} onChange={(e, d)=>{ if(d){ setRangeEnd(new Date(d.getFullYear(), d.getMonth(), d.getDate())); } }} />
+                  ) : (
+                    <PrimaryButton title={rangeEnd? rangeEnd.toDateString() : 'Pick End'} onPress={()=>beginPickDate('end')} variant='secondary' fullWidth />
+                  )}
+                </View>
+              </View>
+              {Platform.OS === 'android' && showDatePicker && (
+                <DateTimePicker mode='date' display='calendar' value={new Date()} onChange={onDatePicked} />
+              )}
+              <View style={{ height:8 }} />
+              <View style={styles.rowBetween}>
+                <PrimaryButton title='Export JSON' onPress={()=>doRangeExport('json')} disabled={rangeExporting || !rangeStart || !rangeEnd} fullWidth />
+              </View>
+              <View style={{ height:8 }} />
+              <View style={styles.rowBetween}>
+                <PrimaryButton title='Export CSV' onPress={()=>doRangeExport('csv')} disabled={rangeExporting || !rangeStart || !rangeEnd} fullWidth variant='secondary' />
+              </View>
+              <View style={{ height:8 }} />
+              <View style={styles.rowBetween}>
+                <PrimaryButton title='Export Markdown' onPress={()=>doRangeExport('md')} disabled={rangeExporting || !rangeStart || !rangeEnd} fullWidth variant='secondary' />
+              </View>
             </View>
           )}
           {item.expanded && item.content === 'deleteAcct' && (
