@@ -1,6 +1,69 @@
 # Med App
 
-A privacy-focused meditation and mood tracker built with Expo and Firebase.
+A privacy-focused meditation and mood tracker built with Expo (React Native) and Firebase.
+
+## Features
+
+- Guided meditation player, background sounds, and daily plan
+- Mood & stress tracking with charts and exports (JSON/CSV/Markdown)
+- End-to-end encrypted notes with optional passphrase protection
+- Dark/Light theme with persistent preference
+- Reminders/notifications and auto-lock with optional biometric unlock
+- Community feed and basic badges
+- Remote wipe and local-only mode
+
+## Project structure
+
+- `my-app/app/` — screens and router
+- `my-app/src/services/` — app services (encryption, profile, etc.)
+- `my-app/src/components/` — reusable UI components
+- `my-app/src/theme/` — theme provider and palette
+- `my-app/firebase/` — Firebase config
+
+## Prerequisites
+
+- Node.js LTS
+- A Firebase project with Email/Password auth and Firestore enabled
+
+## Setup
+
+1) Install dependencies
+
+```powershell
+# from my-app
+npm install
+```
+
+2) Configure Firebase
+
+Edit `my-app/firebase/firebaseConfig.js` with your Firebase project keys (apiKey, authDomain, projectId, etc.).
+
+3) Start the app
+
+```powershell
+# clear cache (optional if you hit bundler issues)
+npx expo start -c
+
+# or just
+npx expo start
+```
+
+Use the Expo Go app or an emulator (Android/iOS) to run the project.
+
+## Environment and scripts
+
+Package scripts in `my-app/package.json`:
+
+- `npm run start` — Start Expo bundler
+- `npm run android` — Start and open Android
+- `npm run ios` — Start and open iOS (macOS)
+- `npm run web` — Start in web
+
+## Troubleshooting
+
+- Stuck bundler/metro cache: run `npx expo start -c`.
+- Firebase permission errors: ensure Firestore rules and Email/Password auth are enabled.
+- Notifications on device: ensure permissions are granted and the device supports them.
 
 ## Security
 
@@ -37,3 +100,58 @@ This app is designed so that your private notes are end-to-end encrypted before 
   - Notes are encrypted on-device with a per-device key. With passphrase mode enabled, the key is only in memory after you unlock, reducing at-rest exposure even if the keystore is compromised. Anyone without your passphrase (and escrow or physical unlocked device) should not be able to read your notes.
 
 If you have questions or suggestions about the security model, please open an issue or start a discussion.
+
+## Usage (quick tour)
+
+- Sign up or log in with email and password.
+- Track mood & stress; add a private note (encrypted on-device).
+- View weekly report and charts.
+- Enable Dark Mode in Settings.
+- Optional: Enable passphrase protection (Settings → Encryption) and create/export a key escrow for recovery.
+- Export your data (JSON/CSV/Markdown) from Settings → Data Management.
+
+## Firebase configuration
+
+- Authentication: Enable Email/Password in Firebase Console.
+- Firestore: Create a database in production or test mode. Example minimal rules (tighten as needed):
+
+```javascript
+// Firestore Security Rules (example baseline)
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      match /moods/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+  }
+}
+```
+
+## Data model (high-level)
+
+- `users/{uid}`: profile fields (email, displayName, avatarB64, themeMode, biometricEnabled, analyticsOptOut, sessionEpoch, termsAcceptedVersion, privacyAcceptedAt, wipeRequested, etc.)
+- `users/{uid}/moods/{id}`: mood, stress, createdAt, encVer, noteCipher, noteIv, noteAlg. Legacy entries may have `note` (to be migrated).
+
+## Build & release (overview)
+
+- Development: run locally with Expo (see Setup).
+- Native builds: you can integrate with EAS Build for generating APK/AAB or IPA. See Expo docs for `eas build` configuration.
+
+## Screenshots
+
+Add screenshots of the Home, Mood Tracker, Report, and Settings screens here.
+
+## Contributing
+
+Issues and pull requests are welcome. Please follow conventional commit messages and keep PRs focused.
+
+## License
+
+0BSD (see package.json)
+
+## Contact
+
+Open an issue or discussion in this repository for questions or support.
