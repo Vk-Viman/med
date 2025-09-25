@@ -13,6 +13,7 @@ if (typeof global === "object" && (typeof global.crypto === "undefined" || typeo
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, Modal, FlatList, Animated, useWindowDimensions, Switch } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
+import { impact as hImpact, success as hSuccess, error as hError } from "../src/utils/haptics";
 import GradientBackground from "../src/components/GradientBackground";
 import MarkdownPreview from "../src/components/MarkdownPreview";
 import Slider from "@react-native-community/slider";
@@ -159,9 +160,9 @@ export default function MoodTracker() {
     setMood(k);
     // Haptic variation: medium impact for standard moods, lighter for opening the picker
     if (k === OTHER_KEY) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  hImpact('light');
     } else {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  hImpact('medium');
     }
     const scale = getScale(k);
     Animated.sequence([
@@ -214,13 +215,13 @@ export default function MoodTracker() {
       await flushPersistence();
       await createMoodEntry({ mood, stress, note });
       await flushQueue();
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  hSuccess();
       setShowSuccess(true);
       setTimeout(()=> setShowSuccess(false), 1600);
       setMood(null); setStress(5); setNote("");
       setTimeout(()=> router.back(), 900);
     } catch (e) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+  hError();
       Alert.alert('Save Failed', e.message || 'Unknown error');
     }
     setLoading(false);
@@ -288,7 +289,9 @@ export default function MoodTracker() {
               if (lastHapticStress.current !== v) {
                 let style = Haptics.ImpactFeedbackStyle.Light;
                 if (v >= 7) style = Haptics.ImpactFeedbackStyle.Heavy; else if (v >=4) style = Haptics.ImpactFeedbackStyle.Medium;
-                Haptics.impactAsync(style);
+                // Map style enum to helper strings
+                const map = { [Haptics.ImpactFeedbackStyle.Light]:'light', [Haptics.ImpactFeedbackStyle.Medium]:'medium', [Haptics.ImpactFeedbackStyle.Heavy]:'heavy' };
+                hImpact(map[style] || 'light');
                 lastHapticStress.current = v;
               }
             }}

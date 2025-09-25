@@ -1,23 +1,30 @@
 ﻿import React, { useEffect, useState, useRef } from "react";
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, TextInput, Alert, ActivityIndicator, RefreshControl, Switch, Animated, Platform } from "react-native";
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, TextInput, Alert, ActivityIndicator, RefreshControl, Switch, Animated, Platform, AccessibilityInfo, InteractionManager, findNodeHandle } from "react-native";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import GradientBackground from "../src/components/GradientBackground";
 import { db, auth } from "../firebase/firebaseConfig";
 import { collection, query, orderBy, getDocs } from "firebase/firestore"; // legacy direct fetch kept for chart initial version
-import { LineChart, PieChart } from "react-native-chart-kit";
+import { LineChart, PieChart, BarChart } from "react-native-chart-kit";
 import CryptoJS from "crypto-js"; // retained (may be used elsewhere / future)
-import { listMoodEntriesPage, listMoodEntriesSince, listMoodEntriesBetween, decryptEntry, updateMoodEntry, deleteMoodEntry, flushQueue } from "../src/services/moodEntries";
+import { listMoodEntriesPage, listMoodEntriesSince, listMoodEntriesBetween, decryptEntry, updateMoodEntry, deleteMoodEntry, flushQueue, getChartDataSince, getChartDataBetween } from "../src/services/moodEntries";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Share } from 'react-native';
 import MarkdownPreview from "../src/components/MarkdownPreview";
 import { Dimensions } from "react-native";
 import Card from "../src/components/Card";
+import * as LocalAuthentication from "expo-local-authentication";
+import { useRouter } from "expo-router";
+
+const BIOMETRIC_PREF_KEY = 'pref_biometric_enabled_v1';
 
 const pieColors = ['#42A5F5','#66BB6A','#FFA726','#AB47BC','#EC407A','#FF7043'];
 
 export default function WellnessReport() {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [unlocked, setUnlocked] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const [chartsInteractive, setChartsInteractive] = useState(false);
   const [pageCursor, setPageCursor] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -39,6 +46,24 @@ export default function WellnessReport() {
   const pointAnimValues = useRef([]); // Animated.Value[] for each point
   const pointListeners = useRef([]); // store subscriptions for cleanup
   const [animatedChartData, setAnimatedChartData] = useState(null); // progressive dataset
+  const router = useRouter();
+  const listRef = useRef(null);
+  const headerRef = useRef(null);
+
+  // Biometric gate on enter (if enabled)
+  useEffect(()=>{ (async()=>{
+    try {
+      const pref = await AsyncStorage.getItem(BIOMETRIC_PREF_KEY);
+      const enabled = pref === '1';
+      if(!enabled){ setUnlocked(true); return; }
+      if(Platform.OS === 'web'){ setUnlocked(true); return; }
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const enrolled = await LocalAuthentication.isEnrolledAsync();
+      if(!hasHardware || !enrolled){ setUnlocked(true); return; }
+      const res = await LocalAuthentication.authenticateAsync({ promptMessage:'Unlock wellness report' });
+      if(res.success){ setUnlocked(true); } else { Alert.alert('Locked','Biometric authentication canceled.'); try { router.back(); } catch {} }
+    } catch { setUnlocked(true); }
+  })(); },[]);
   const loadPage = async (reset=false) => {
     const uid = auth.currentUser?.uid; if(!uid) return;
     if(reset){ setLoading(true); }
@@ -61,31 +86,35 @@ export default function WellnessReport() {
     }
   };
 
-  useEffect(() => { flushQueue(); loadPage(true); }, []);
+  useEffect(() => { if(unlocked){ flushQueue(); loadPage(true); } }, [unlocked]);
+  // Announce on unlock
+  useWellnessA11yAnnounce(unlocked, headerRef);
 
   // Load persisted timeframe on mount
   useEffect(()=>{ (async()=>{ try{ const stored = await AsyncStorage.getItem('report_timeframe'); if(stored) setTimeframe(Number(stored)); const cStart = await AsyncStorage.getItem('report_range_start'); const cEnd = await AsyncStorage.getItem('report_range_end'); if(cStart && cEnd){ setCustomRange({ start:new Date(cStart), end:new Date(cEnd) }); } }catch{} })(); },[]);
 
   // Load timeframe specific entries when timeframe changes
   const loadRangeData = async () => {
-    const uid = auth.currentUser?.uid; if(!uid) return;
+  const uid = auth.currentUser?.uid; if(!uid || !unlocked) return;
     setTfLoading(true);
     try {
       chartFade.setValue(0); pieAnim.setValue(0);
-      let docs;
+      // Use cached chart-friendly rows (no note decryption needed here)
+      let rows;
       if(customRange){
-        docs = await listMoodEntriesBetween({ startDate: customRange.start, endDate: customRange.end });
+        rows = await getChartDataBetween({ startDate: customRange.start, endDate: customRange.end });
       } else {
         try { await AsyncStorage.setItem('report_timeframe', String(timeframe)); } catch{}
-        docs = await listMoodEntriesSince({ days: timeframe });
+        rows = await getChartDataSince({ days: timeframe });
       }
-      const decrypted = [];
-      for(const d of docs){
-        const base = { ...d.data(), id: d.id };
-        const full = await decryptEntry(uid, base);
-        decrypted.push(full);
-      }
-      setTfEntries(decrypted);
+      // Normalize to the shape used by charts below to avoid larger refactors
+      const normalized = rows.filter(r => r.createdAtSec).map(r => ({
+        createdAt: { seconds: r.createdAtSec },
+        mood: r.mood,
+        moodScore: r.moodScore,
+        stress: r.stress,
+      }));
+      setTfEntries(normalized);
     } catch(e){}
     setTfLoading(false);
     Animated.parallel([
@@ -94,7 +123,7 @@ export default function WellnessReport() {
     ]).start();
   };
 
-  useEffect(()=>{ loadRangeData(); }, [timeframe, customRange]);
+  useEffect(()=>{ if(unlocked) loadRangeData(); }, [timeframe, customRange, unlocked]);
 
   const onRefresh = () => { setRefreshing(true); setPageCursor(null); loadPage(true); };
 
@@ -137,10 +166,12 @@ export default function WellnessReport() {
 
   // Build chart data from timeframe entries
   const filteredTf = moodFilter ? tfEntries.filter(e=>e.mood===moodFilter) : tfEntries;
-  const chartBase = filteredTf.filter(e => e.createdAt?.seconds).map(e => ({
-    date: new Date(e.createdAt.seconds * 1000),
-    stress: e.stress || 0
-  }));
+  const chartBase = filteredTf.filter(e => e.createdAt?.seconds).map(e => {
+    const date = new Date(e.createdAt.seconds * 1000);
+    const raw = (typeof e.stress === 'string') ? parseFloat(e.stress) : e.stress;
+    const stress = Number.isFinite(raw) ? raw : 0;
+    return { date, stress };
+  });
   // dynamic label thinning
   const labelEvery = chartBase.length > 10 ? Math.ceil(chartBase.length / 7) : 1;
   const fullChartData = {
@@ -183,7 +214,10 @@ export default function WellnessReport() {
   }, [chartBase.length]);
 
   // Summary stats
-  const avgStress = chartBase.length ? (chartBase.reduce((a,b)=>a+b.stress,0)/chartBase.length).toFixed(1) : '-';
+  const avgNum = chartBase.length ? (chartBase.reduce((a,b)=>a+b.stress,0)/chartBase.length) : null;
+  const avgStress = avgNum !== null ? avgNum.toFixed(1) : '-';
+  const variance = avgNum !== null ? (chartBase.reduce((acc,p)=> acc + Math.pow(p.stress - avgNum, 2), 0) / chartBase.length) : null;
+  const varianceStr = variance !== null ? variance.toFixed(2) : '-';
   const moodFreq = filteredTf.reduce((acc,e)=>{ acc[e.mood] = (acc[e.mood]||0)+1; return acc; }, {});
   const topMood = Object.keys(moodFreq).length ? Object.entries(moodFreq).sort((a,b)=>b[1]-a[1])[0] : null;
   // Streak: consecutive days using filtered set (respects mood filter)
@@ -210,20 +244,81 @@ export default function WellnessReport() {
     maxStress = Math.max(...values);
   }
 
+  // Time-of-day pattern: average stress by 4 buckets
+  const todBuckets = { Night:{sum:0,count:0}, Morning:{sum:0,count:0}, Afternoon:{sum:0,count:0}, Evening:{sum:0,count:0} };
+  chartBase.forEach(p=>{
+    const h = p.date.getHours();
+    let k = 'Night';
+    if(h>=6 && h<12) k='Morning'; else if(h>=12 && h<18) k='Afternoon'; else if(h>=18 && h<24) k='Evening';
+    todBuckets[k].sum += p.stress; todBuckets[k].count += 1;
+  });
+  const todLabels = ['Night','Morning','Afternoon','Evening'];
+  const todValues = todLabels.map(k=> todBuckets[k].count ? Number((todBuckets[k].sum/todBuckets[k].count).toFixed(2)) : 0);
+
+  // Weekly pattern (Sun..Sat)
+  const weekdayLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const weekdaySums = Array(7).fill(0);
+  const weekdayCounts = Array(7).fill(0);
+  chartBase.forEach(p=>{ const d = p.date.getDay(); weekdaySums[d]+=p.stress; weekdayCounts[d]++; });
+  const weekdayAvg = weekdaySums.map((s,i)=> weekdayCounts[i] ? Number((s/weekdayCounts[i]).toFixed(2)) : 0);
+
+  // Hourly heatmap (0-23)
+  const hourSums = Array(24).fill(0);
+  const hourCounts = Array(24).fill(0);
+  chartBase.forEach(p=>{ const h = p.date.getHours(); hourSums[h]+=p.stress; hourCounts[h]++; });
+  const hourAvg = hourSums.map((s,i)=> hourCounts[i] ? Number((s/hourCounts[i]).toFixed(2)) : 0);
+  const hourMin = hourAvg.filter(v=>v>0).length ? Math.min(...hourAvg.filter(v=>v>0)) : 0;
+  const hourMax = Math.max(...hourAvg);
+
+  const colorForValue = (v) => {
+    if(hourMax === 0) return '#E3F2FD';
+    const ratio = (v - hourMin) / Math.max(1e-6,(hourMax - hourMin)); // 0..1
+    // interpolate between light blue and primary
+    const lerp = (a,b,t)=> Math.round(a + (b-a)*t);
+    const start = { r: 227, g: 242, b: 253 }; // #E3F2FD
+    const end   = { r:   2, g: 136, b: 209 }; // #0288D1
+    const r = lerp(start.r, end.r, ratio);
+    const g = lerp(start.g, end.g, ratio);
+    const b = lerp(start.b, end.b, ratio);
+    return `rgb(${r},${g},${b})`;
+  };
+
   const ListHeader = () => (
     <View>
-      <Text style={styles.heading}>Wellness Report</Text>
+      <Text ref={headerRef} style={styles.heading} accessibilityRole='header' accessibilityLabel='Wellness Report'>Wellness Report</Text>
       <View style={styles.timeframeRow}>
         {[7,30,90].map(d => (
-          <TouchableOpacity key={d} style={[styles.timeBtn, !customRange && timeframe===d && styles.timeBtnActive]} onPress={()=>{ setCustomRange(null); setTimeframe(d); }} disabled={tfLoading}>
+          <TouchableOpacity
+            key={d}
+            style={[styles.timeBtn, !customRange && timeframe===d && styles.timeBtnActive]}
+            onPress={()=>{ setCustomRange(null); setTimeframe(d); }}
+            disabled={tfLoading}
+            accessibilityRole="button"
+            accessibilityLabel={`${d} day window`}
+            accessibilityState={{ selected: !customRange && timeframe===d, disabled: tfLoading }}
+            hitSlop={{ top:8, bottom:8, left:8, right:8 }}
+          >
             <Text style={[styles.timeBtnText, !customRange && timeframe===d && styles.timeBtnTextActive]}>{d}D</Text>
           </TouchableOpacity>
         ))}
-        <TouchableOpacity style={[styles.timeBtn, customRange && styles.timeBtnActive]} onPress={()=>{ setRangePicking('start'); setRangeModal(true); }}>
+        <TouchableOpacity
+          style={[styles.timeBtn, customRange && styles.timeBtnActive]}
+          onPress={()=>{ setRangePicking('start'); setRangeModal(true); }}
+          accessibilityRole="button"
+          accessibilityLabel="Custom date range"
+          accessibilityState={{ selected: !!customRange }}
+          hitSlop={{ top:8, bottom:8, left:8, right:8 }}
+        >
           <Text style={[styles.timeBtnText, customRange && styles.timeBtnTextActive]}>Custom</Text>
         </TouchableOpacity>
         {customRange && (
-          <TouchableOpacity style={[styles.timeBtn,{ backgroundColor:'#F44336'}]} onPress={()=>setCustomRange(null)}>
+          <TouchableOpacity
+            style={[styles.timeBtn,{ backgroundColor:'#F44336'}]}
+            onPress={()=>setCustomRange(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Clear date range"
+            hitSlop={{ top:8, bottom:8, left:8, right:8 }}
+          >
             <Text style={[styles.timeBtnText,{ color:'#fff'}]}>Clear</Text>
           </TouchableOpacity>
         )}
@@ -233,79 +328,209 @@ export default function WellnessReport() {
       )}
       {moodFilter && (
         <View style={styles.filterChipRow}>
-          <TouchableOpacity style={styles.filterChip} onPress={()=>setMoodFilter(null)}>
+          <TouchableOpacity
+            style={styles.filterChip}
+            onPress={()=>setMoodFilter(null)}
+            accessibilityRole="button"
+            accessibilityLabel={`Clear mood filter ${moodFilter}`}
+            hitSlop={{ top:8, bottom:8, left:8, right:8 }}
+          >
             <Text style={styles.filterChipText}>Filter: {moodFilter} ✕</Text>
           </TouchableOpacity>
         </View>
       )}
       {tfEntries.length > 0 ? (
         <Card>
-          <View style={{ flexDirection:'row', flexWrap:'wrap', marginBottom:6 }}>
+          {/* Chart interaction toggle: keep charts non-interactive for smooth scroll by default */}
+          <View style={{ flexDirection:'row', alignItems:'center', justifyContent:'flex-end', marginBottom:6 }}>
+            <Text style={[styles.statLabel,{ marginRight:8 }]}>Chart Touch</Text>
+            <Switch value={chartsInteractive} onValueChange={setChartsInteractive} accessibilityLabel="Toggle chart touch interactions" />
+          </View>
+          <View style={{ flexDirection:'row', flexWrap:'wrap', marginBottom:6, alignItems:'center' }}>
             <View style={styles.statBlock}><Text style={styles.statLabel}>Avg</Text><Text style={styles.statValue}>{avgStress}</Text></View>
+            <View style={styles.statBlock}><Text style={styles.statLabel}>Variance</Text><Text style={styles.statValue}>{varianceStr}</Text></View>
             <View style={styles.statBlock}><Text style={styles.statLabel}>Median</Text><Text style={styles.statValue}>{median}</Text></View>
             <View style={styles.statBlock}><Text style={styles.statLabel}>Min–Max</Text><Text style={styles.statValue}>{minStress}-{maxStress}</Text></View>
             <View style={styles.statBlock}><Text style={styles.statLabel}>{moodFilter? 'Streak (Mood)':'Streak'}</Text><Text style={styles.statValue}>{streak}d</Text></View>
             <View style={styles.statBlock}><Text style={styles.statLabel}>Top Mood</Text><Text style={styles.statValue}>{topMood? `${topMood[0]}(${topMood[1]})`:'-'}</Text></View>
-            <TouchableOpacity style={[styles.shareBtn]} onPress={()=>{
+            <TouchableOpacity
+              style={[styles.shareBtn]}
+              onPress={()=>{
               const header = customRange ? `Custom Range ${customRange.start.toLocaleDateString()} - ${customRange.end.toLocaleDateString()}` : `${timeframe} Day Window`;
               const freqLines = Object.entries(moodFreq).sort((a,b)=>b[1]-a[1]).map(([m,c])=>`- ${m}: ${c}`).join('\n');
-              const md = `**Wellness Stats**\n${header}\n\n**Avg:** ${avgStress}\n**Median:** ${median}\n**Min–Max:** ${minStress}-${maxStress}\n**Streak${moodFilter?' (Mood)':''}:** ${streak}d\n**Top Mood:** ${topMood? topMood[0]+' '+topMood[1]: '-'}\n\n**Mood Frequency**\n${freqLines}`;
+              const todLines = todLabels.map((l,i)=> `- ${l}: ${todValues[i]}`).join('\n');
+              const wLines = weekdayLabels.map((l,i)=> `- ${l}: ${weekdayAvg[i]}`).join('\n');
+              const md = `**Wellness Stats**\n${header}\n\n**Avg:** ${avgStress}\n**Variance:** ${varianceStr}\n**Median:** ${median}\n**Min–Max:** ${minStress}-${maxStress}\n**Streak${moodFilter?' (Mood)':''}:** ${streak}d\n**Top Mood:** ${topMood? topMood[0]+' '+topMood[1]: '-'}\n\n**Mood Frequency**\n${freqLines}\n\n**Avg Stress by Time of Day**\n${todLines}\n\n**Avg Stress by Weekday**\n${wLines}`;
               Share.share({ message: md });
-            }}>
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Share wellness stats"
+              hitSlop={{ top:8, bottom:8, left:8, right:8 }}
+            >
               <Text style={styles.shareBtnText}>Share</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.shareBtn,{ backgroundColor:'#43A047', marginLeft:8 }]} onPress={()=>{
+            <TouchableOpacity
+              style={[styles.shareBtn,{ backgroundColor:'#43A047', marginLeft:8 }]}
+              onPress={()=>{
               const headerLine = customRange ? `Custom Range ${customRange.start.toLocaleDateString()} - ${customRange.end.toLocaleDateString()}` : `${timeframe} Day Window`;
               const rows = filteredTf.filter(e=>e.createdAt?.seconds).map(e=>{
                 const dIso = new Date(e.createdAt.seconds*1000).toISOString();
                 const noteLen = e.note? e.note.length : 0;
                 const mood = (e.mood||'').replace(/,/g,' ');
-                return `${dIso},${mood},${e.stress},${noteLen}`;
+                const stressNum = typeof e.stress === 'string' ? parseFloat(e.stress) : e.stress;
+                return `${dIso},${mood},${Number.isFinite(stressNum)?stressNum:''},${noteLen}`;
               });
               const csv = ['date,mood,stress,noteLength', ...rows].join('\n');
               Share.share({ message: `${headerLine}\n${csv}` });
-            }}>
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Export entries CSV"
+              hitSlop={{ top:8, bottom:8, left:8, right:8 }}
+            >
               <Text style={styles.shareBtnText}>CSV</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.shareBtn,{ backgroundColor:'#6D4C41', marginLeft:8 }]}
+              onPress={()=>{
+              // Stats CSV (multiple tables separated by blank lines)
+              const wHeader = 'weekday,avgStress';
+              const wRows = weekdayLabels.map((l,i)=> `${l},${weekdayAvg[i]}`);
+              const hHeader = 'hour,avgStress';
+              const hRows = hourAvg.map((v,i)=> `${i},${v}`);
+              const tHeader = 'timeOfDay,avgStress';
+              const tRows = todLabels.map((l,i)=> `${l},${todValues[i]}`);
+              const csv = [wHeader, ...wRows, '', hHeader, ...hRows, '', tHeader, ...tRows].join('\n');
+              Share.share({ message: csv });
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Export stats CSV"
+              hitSlop={{ top:8, bottom:8, left:8, right:8 }}
+            >
+              <Text style={styles.shareBtnText}>Stats CSV</Text>
             </TouchableOpacity>
           </View>
           <Animated.View style={{ opacity: chartFade }}>
-            <LineChart
-              data={animatedChartData || fullChartData}
-              width={Dimensions.get("window").width - 32}
-              height={180}
-              chartConfig={{
-                backgroundColor: "transparent",
-                backgroundGradientFrom: "#FFFFFF",
-                backgroundGradientTo: "#FFFFFF",
-                color: (opacity = 1) => `rgba(2, 136, 209, ${opacity})`,
-                labelColor: (opacity = 1) => `rgba(1, 87, 155, ${opacity})`,
-                strokeWidth: 2,
-                propsForDots: { r: "4", strokeWidth: "2", stroke: "#0288D1" },
-              }}
-              bezier
-              style={{ borderRadius: 12 }}
-            />
+            {/* Disable touch handling on chart by default to allow vertical scroll */}
+            <View
+              pointerEvents={chartsInteractive ? 'auto' : 'none'}
+              accessible
+              accessibilityRole="image"
+              accessibilityLabel="Stress trend line chart"
+            >
+              <LineChart
+                data={animatedChartData || fullChartData}
+                width={Dimensions.get("window").width - 32}
+                height={180}
+                chartConfig={{
+                  backgroundColor: "transparent",
+                  backgroundGradientFrom: "#FFFFFF",
+                  backgroundGradientTo: "#FFFFFF",
+                  color: (opacity = 1) => `rgba(2, 136, 209, ${opacity})`,
+                  labelColor: (opacity = 1) => `rgba(1, 87, 155, ${opacity})`,
+                  strokeWidth: 2,
+                  propsForDots: { r: "4", strokeWidth: "2", stroke: "#0288D1" },
+                }}
+                bezier
+                style={{ borderRadius: 12 }}
+              />
+            </View>
           </Animated.View>
+          <View style={{ marginTop:12 }}>
+            <Text style={[styles.statLabel,{ alignSelf:'flex-start', marginBottom:4 }]}>Avg Stress by Time of Day</Text>
+            {/* Disable touch handling to ensure parent list scrolls when toggle off */}
+            <View
+              pointerEvents={chartsInteractive ? 'auto' : 'none'}
+              accessible
+              accessibilityRole="image"
+              accessibilityLabel="Average stress by time of day bar chart"
+            >
+              <BarChart
+                data={{ labels: todLabels, datasets:[{ data: todValues }] }}
+                width={Dimensions.get("window").width - 32}
+                height={160}
+                fromZero
+                chartConfig={{
+                  backgroundColor: "transparent",
+                  backgroundGradientFrom: "#FFFFFF",
+                  backgroundGradientTo: "#FFFFFF",
+                  decimalPlaces: 1,
+                  color: (opacity=1)=> `rgba(2, 136, 209, ${opacity})`,
+                  labelColor: (opacity=1)=> `rgba(1, 87, 155, ${opacity})`,
+                  propsForBackgroundLines:{ stroke:'#E3F2FD' }
+                }}
+                style={{ borderRadius: 12 }}
+              />
+            </View>
+          </View>
+          {/* Weekly pattern */}
+          <View style={{ marginTop:12 }}>
+            <Text style={[styles.statLabel,{ alignSelf:'flex-start', marginBottom:4 }]}>Avg Stress by Weekday</Text>
+            {/* Disable touch handling to ensure parent list scrolls when toggle off */}
+            <View
+              pointerEvents={chartsInteractive ? 'auto' : 'none'}
+              accessible
+              accessibilityRole="image"
+              accessibilityLabel="Average stress by weekday bar chart"
+            >
+              <BarChart
+                data={{ labels: weekdayLabels, datasets:[{ data: weekdayAvg }] }}
+                width={Dimensions.get("window").width - 32}
+                height={160}
+                fromZero
+                chartConfig={{
+                  backgroundColor: "transparent",
+                  backgroundGradientFrom: "#FFFFFF",
+                  backgroundGradientTo: "#FFFFFF",
+                  decimalPlaces: 1,
+                  color: (opacity=1)=> `rgba(2, 136, 209, ${opacity})`,
+                  labelColor: (opacity=1)=> `rgba(1, 87, 155, ${opacity})`,
+                  propsForBackgroundLines:{ stroke:'#E3F2FD' }
+                }}
+                style={{ borderRadius: 12 }}
+              />
+            </View>
+          </View>
+
+          {/* Hourly heatmap */}
+          <View style={{ marginTop:12 }}>
+            <Text style={[styles.statLabel,{ alignSelf:'flex-start', marginBottom:8 }]}>Hourly Heatmap (Avg Stress)</Text>
+            <View style={{ flexDirection:'row', flexWrap:'wrap', gap:6 }}>
+              {hourAvg.map((v,i)=> (
+                <View key={i} style={{ width:(Dimensions.get("window").width - 32 - (5*6))/6, aspectRatio:1, borderRadius:8, backgroundColor: colorForValue(v), alignItems:'center', justifyContent:'center' }}>
+                  <Text style={{ fontSize:10, color:'#0B1722' }}>{i}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
           {Object.keys(moodFreq).length > 0 && (
             <Animated.View style={{ marginTop:12, alignItems:'center', transform:[{ scale: pieAnim.interpolate({ inputRange:[0,1], outputRange:[0.85,1] }) }], opacity: pieAnim }}>
               <Text style={[styles.statLabel,{ alignSelf:'flex-start', marginBottom:4 }]}>Mood Distribution</Text>
-              <PieChart
-                data={Object.entries(moodFreq).map(([m,c],i)=>({
-                  name:m,
-                  population:c,
-                  color: pieColors[i % pieColors.length],
-                  legendFontColor:'#01579B',
-                  legendFontSize:12,
-                  onPress: ()=> setMoodFilter(prev => prev === m ? null : m)
-                }))}
-                width={Dimensions.get("window").width - 64}
-                height={180}
-                chartConfig={{ color:()=> '#0288D1' }}
-                accessor={'population'}
-                backgroundColor={'transparent'}
-                paddingLeft={'8'}
-                absolute
-              />
+              {/* Disable pointer events unless interactions are enabled */}
+              <View
+                pointerEvents={chartsInteractive ? 'auto' : 'none'}
+                accessible
+                accessibilityRole="image"
+                accessibilityLabel="Mood distribution pie chart"
+              >
+                <PieChart
+                  data={Object.entries(moodFreq).map(([m,c],i)=>({
+                    name:m,
+                    population:c,
+                    color: pieColors[i % pieColors.length],
+                    legendFontColor:'#01579B',
+                    legendFontSize:12,
+                    onPress: ()=> setMoodFilter(prev => prev === m ? null : m)
+                  }))}
+                  width={Dimensions.get("window").width - 64}
+                  height={180}
+                  chartConfig={{ color:()=> '#0288D1' }}
+                  accessor={'population'}
+                  backgroundColor={'transparent'}
+                  paddingLeft={'8'}
+                  absolute
+                />
+              </View>
             </Animated.View>
           )}
         </Card>
@@ -318,31 +543,64 @@ export default function WellnessReport() {
     <>
     <GradientBackground>
     <FlatList
+      ref={listRef}
       style={styles.container}
       data={entries}
       keyExtractor={e => e.id}
       ListHeaderComponent={ListHeader}
+      ListHeaderComponentStyle={{ paddingBottom: 16 }}
       renderItem={({ item }) => {
         const hasCipher = item.encVer === 2 && item.noteCipher;
         const showPlaceholder = hasCipher && (item.note === '' || typeof item.note === 'undefined');
+        const createdStr = item.createdAt?.seconds ? new Date(item.createdAt.seconds * 1000).toLocaleString() : '';
         return (
-          <TouchableOpacity style={styles.entry} onPress={() => openEdit(item)} onLongPress={() => confirmDelete(item)} delayLongPress={500}>
+          <TouchableOpacity
+            style={styles.entry}
+            onPress={() => openEdit(item)}
+            onLongPress={() => confirmDelete(item)}
+            delayLongPress={500}
+            accessibilityRole="button"
+            accessibilityLabel={`Journal entry. Mood ${item.mood}. Stress ${item.stress}. ${createdStr ? `Created ${createdStr}.` : ''}`}
+            accessibilityHint="Double tap to edit. Long press to delete."
+            hitSlop={{ top:8, bottom:8, left:8, right:8 }}
+          >
             <Text style={styles.mood}>{item.mood} | Stress: {item.stress} {item.legacy && <Text style={styles.legacy}>LEGACY</Text>}</Text>
             {item.note ? (
               <MarkdownPreview text={item.note} style={styles.note} />
             ) : showPlaceholder ? (
               <Text style={styles.notePlaceholder}>Encrypted note (empty or failed to decrypt)</Text>
             ) : null}
-            <Text style={styles.date}>{item.createdAt?.seconds ? new Date(item.createdAt.seconds * 1000).toLocaleString() : ''}</Text>
+            <Text style={styles.date}>{createdStr}</Text>
           </TouchableOpacity>
         );
       }}
       onEndReached={loadMore}
       onEndReachedThreshold={0.2}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      contentContainerStyle={{ paddingBottom: 24 }}
+      contentContainerStyle={{ paddingBottom: 96 }}
+      nestedScrollEnabled
+      scrollEnabled
+      showsVerticalScrollIndicator
+      scrollEventThrottle={16}
+      onScroll={(e)=>{
+        const y = e.nativeEvent.contentOffset?.y || 0;
+        if(y > 400 && !showScrollTop) setShowScrollTop(true);
+        else if(y <= 400 && showScrollTop) setShowScrollTop(false);
+      }}
       ListFooterComponent={loadingMore ? <ActivityIndicator style={{ marginVertical: 12 }} /> : null}
   />
+  {showScrollTop && (
+    <TouchableOpacity
+      onPress={()=> listRef.current?.scrollToOffset({ offset:0, animated:true })}
+      activeOpacity={0.8}
+      style={styles.scrollTopBtn}
+      accessibilityRole="button"
+      accessibilityLabel="Scroll to top"
+      hitSlop={{ top:8, bottom:8, left:8, right:8 }}
+    >
+      <Text style={styles.scrollTopBtnText}>Top</Text>
+    </TouchableOpacity>
+  )}
   {loading && entries.length === 0 && (
     <View style={styles.loadingOverlay}><ActivityIndicator size="large" color="#0288D1" /></View>
   )}
@@ -420,6 +678,27 @@ export default function WellnessReport() {
   );
 }
 
+// Announce and set focus shortly after the list mounts (once unlocked)
+// We use a separate effect to not interfere with biometric flow
+export function useWellnessA11yAnnounce(unlocked, ref) {
+  useEffect(() => {
+    if (!unlocked) return;
+    const t = setTimeout(() => {
+      InteractionManager.runAfterInteractions(() => {
+        AccessibilityInfo.isScreenReaderEnabled().then((enabled) => {
+          if (!enabled) return;
+          try {
+            const tag = findNodeHandle(ref?.current);
+            if (tag) AccessibilityInfo.setAccessibilityFocus?.(tag);
+          } catch {}
+          AccessibilityInfo.announceForAccessibility('Wellness Report. Charts and insights for your moods and stress.');
+        }).catch(()=>{});
+      });
+    }, 500);
+    return () => clearTimeout(t);
+  }, [unlocked, ref]);
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16 },
   heading: { fontSize: 22, fontWeight: "700", color: "#01579B", marginBottom: 12 },
@@ -432,6 +711,8 @@ const styles = StyleSheet.create({
   notePlaceholder:{ fontSize:13, fontStyle:'italic', color:'#607D8B', marginVertical:4 },
   date: { fontSize: 12, color: "#90A4AE" },
   loadingOverlay:{ position:'absolute', top:0,left:0,right:0,bottom:0, alignItems:'center', justifyContent:'center' },
+  scrollTopBtn:{ position:'absolute', right:16, bottom:24, backgroundColor:'#0288D1', paddingHorizontal:14, paddingVertical:10, borderRadius:24, shadowColor:'#000', shadowOpacity:0.15, shadowRadius:6, elevation:4 },
+  scrollTopBtnText:{ color:'#fff', fontWeight:'700' },
   modalBackdrop:{ flex:1, backgroundColor:'rgba(0,0,0,0.4)', justifyContent:'center', padding:24 },
   modalCard:{ backgroundColor:'#fff', borderRadius:16, padding:16 },
   modalTitle:{ fontSize:18, fontWeight:'700', color:'#01579B', marginBottom:8 },

@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useState, useRef } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Pressable, ScrollView, RefreshControl, Animated } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Pressable, ScrollView, RefreshControl, Animated, AccessibilityInfo, InteractionManager, findNodeHandle } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import PrimaryButton from "../src/components/PrimaryButton";
@@ -9,7 +9,11 @@ import GradientBackground from "../src/components/GradientBackground";
 import { Ionicons } from "@expo/vector-icons";
 import Card from "../src/components/Card";
 import { getUserProfile } from "../src/services/userProfile";
-import { getMoodSummary } from "../src/services/moodEntries";
+import { getMoodSummary, getChartDataSince } from "../src/services/moodEntries";
+import { auth, db } from "../firebase/firebaseConfig";
+import { evaluateStreakBadges, listUserBadges, badgeEmoji } from "../src/badges";
+import Sparkline from "../src/components/Sparkline";
+import { collection, query, where, orderBy, onSnapshot, Timestamp } from 'firebase/firestore';
 import * as Haptics from 'expo-haptics';
 import LottieView from 'lottie-react-native';
 import { useFocusEffect } from 'expo-router';
@@ -25,6 +29,10 @@ export default function HomeScreen() {
   const pullY = useRef(new Animated.Value(0)).current; // still track if needed later
   const [pullProgress, setPullProgress] = useState(0); // 0..1
   const [showToast, setShowToast] = useState(false);
+  const [badges, setBadges] = useState([]);
+  const [trendText, setTrendText] = useState("");
+  const [moodSeries, setMoodSeries] = useState([]);
+  const todayHeaderRef = useRef(null);
 
   const greeting = () => {
     const h = new Date().getHours();
@@ -44,7 +52,46 @@ export default function HomeScreen() {
     try {
       const s = await getMoodSummary({ streakLookbackDays:14 });
       setSummary(s);
+      // Award streak badges opportunistically
+      const uid = auth.currentUser?.uid; if(uid && s.streak){ try { await evaluateStreakBadges(uid, s.streak); } catch {} }
     } catch {}
+    // Load recent badges for display
+    try { const uid = auth.currentUser?.uid; if(uid){ const rec = await listUserBadges(uid, 6); setBadges(rec); } } catch {}
+    // Build mood trends text summary (last 7 days) using cached minimal chart data
+    try {
+      const uid = auth.currentUser?.uid; if(uid){
+        const rows = await getChartDataSince({ days: 7 });
+        // prefer numeric moodScore if present, else fallback to stress
+        const moodsRaw = rows.map(r=> (r.moodScore ?? r.mood));
+        const moods = moodsRaw.map(v=> typeof v === 'string' ? parseFloat(v) : v).filter(n=> Number.isFinite(n));
+        const stress = rows.map(r=> (typeof r.stress === 'string' ? parseFloat(r.stress) : r.stress)).filter(n=> Number.isFinite(n));
+        // Decide which series to render: prefer mood if it has >=2, else stress if >=2
+        if(moods.length >= 2){
+          setMoodSeries(moods);
+        } else if(stress.length >= 2){
+          setMoodSeries(stress);
+        } else {
+          setMoodSeries([]);
+        }
+        if(moods.length >= 1){
+          const avg = (moods.reduce((a,b)=>a+b,0)/moods.length).toFixed(1);
+          const last = moods[moods.length-1]; const first = moods[0];
+          const delta = (last - first);
+          const dir = delta>0? 'improving' : (delta<0? 'declining' : 'steady');
+          const avgStress = stress.length? (stress.reduce((a,b)=>a+b,0)/stress.length).toFixed(1) : '-';
+          setTrendText(`Mood avg ${avg}/10 • ${dir}${avgStress!=='-'? ` • Stress avg ${avgStress}/10`:''}`);
+        } else if(stress.length >= 1){
+          const avgS = (stress.reduce((a,b)=>a+b,0)/stress.length).toFixed(1);
+          const last = stress[stress.length-1]; const first = stress[0];
+          const delta = (last - first);
+          const dir = delta<0? 'improving' : (delta>0? 'rising' : 'steady');
+          setTrendText(`Stress avg ${avgS}/10 • ${dir}`);
+        } else {
+          setMoodSeries([]);
+          setTrendText('Log moods to see 7‑day trends');
+        }
+      }
+    } catch { setTrendText(''); }
     if(opts.showSpinner) setLoading(false);
     return () => { mounted = false; };
   };
@@ -68,15 +115,38 @@ export default function HomeScreen() {
   useFocusEffect(React.useCallback(()=>{
     // silent refresh when returning to screen
     loadData({ showSpinner:false });
+    // Announce for screen readers on focus and move focus to Today header
+    InteractionManager.runAfterInteractions(() => {
+      setTimeout(() => {
+        AccessibilityInfo.isScreenReaderEnabled().then((enabled)=>{
+          if(!enabled) return;
+          try {
+            const tag = findNodeHandle(todayHeaderRef.current);
+            if (tag) AccessibilityInfo.setAccessibilityFocus?.(tag);
+          } catch {}
+          AccessibilityInfo.announceForAccessibility('Home. Insights, streak, and quick actions.');
+        }).catch(()=>{});
+      }, 300);
+    });
   },[]));
 
   const moodEmoji = (m) => {
     if(m == null) return '🌀';
-    if(m <= 2) return '😢';
-    if(m <= 4) return '🙁';
-    if(m <= 6) return '😐';
-    if(m <= 8) return '🙂';
-    return '😄';
+      // textual categories support
+      if(typeof m === 'string'){
+        const t = m.toLowerCase();
+        if(t.includes('sad')) return '😢';
+        if(t.includes('stress')) return '😣';
+        if(t.includes('calm')) return '🙂';
+        if(t.includes('happy')) return '😄';
+        return '😐';
+      }
+      // numeric mood score fallback (0..10)
+      if(m <= 2) return '😢';
+      if(m <= 4) return '🙁';
+      if(m <= 6) return '😐';
+      if(m <= 8) return '🙂';
+      return '😄';
   };
   const moodTint = (m) => {
     // Light mode soft pastels
@@ -96,10 +166,28 @@ export default function HomeScreen() {
     if(m <= 8) return '#18271C';          // green-ish
     return '#0F2132';
   };
+  // badgeEmoji helper centralized in src/badges
+
+  const moodTextToScore = (val) => {
+    if(!val) return null;
+    const t = String(val).toLowerCase();
+    if(t.includes('happy')) return 9;
+    if(t.includes('calm')) return 8;
+    if(t.includes('ok') || t.includes('neutral')) return 6;
+    if(t.includes('stres')) return 4;
+    if(t.includes('sad')) return 2;
+    return 5; // default mid
+  };
   const latestMoodLabel = () => {
     if(!summary.latest) return 'Log your first mood to start tracking';
     const dt = summary.latest.createdAt ? summary.latest.createdAt.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
-    return `${summary.latest.mood}/10 mood • ${summary.latest.stress}/10 stress${dt? ' · '+dt:''}`;
+      const m = summary.latest.mood;
+      const s = summary.latest.stress;
+      const mNum = typeof m === 'number' ? m : (typeof m === 'string' && !isNaN(parseFloat(m)) ? parseFloat(m) : null);
+      const sNum = typeof s === 'number' ? s : (typeof s === 'string' && !isNaN(parseFloat(s)) ? parseFloat(s) : null);
+      const moodPart = mNum != null ? `${Math.round(mNum)}/10 mood` : (m ? `${String(m)}` : 'Mood');
+      const stressPart = sNum != null ? `${Math.round(sNum)}/10 stress` : (s ? `${String(s)} stress` : '');
+      return `${moodPart}${stressPart? ' • '+stressPart:''}${dt? ' · '+dt:''}`;
   };
 
   const impact = async (style = 'light') => {
@@ -109,6 +197,72 @@ export default function HomeScreen() {
     } catch {}
   };
   const navigate = async (path, h='light') => { await impact(h); router.push(path); };
+
+  // Real-time subscription for last 7 days to auto-update INSIGHTS and streak/summary
+  useEffect(()=>{
+    const uid = auth.currentUser?.uid; if(!uid) return;
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    start.setDate(start.getDate() - 6);
+    const startTs = Timestamp.fromDate(start);
+    const qRef = query(collection(db, `users/${uid}/moods`), where('createdAt','>=', startTs), orderBy('createdAt','asc'));
+    const unsub = onSnapshot(qRef, (snap)=>{
+      const items = []; snap.forEach(d=> items.push({ id:d.id, ...d.data() }));
+      // compute latest
+      let latest = null;
+      if(items.length){
+        const last = items[items.length-1];
+        latest = {
+          id:last.id,
+          mood:last.mood,
+          stress:last.stress,
+          createdAt: last.createdAt?.seconds ? new Date(last.createdAt.seconds*1000) : null
+        };
+      }
+      // compute streak
+      const byDay = new Map();
+      items.forEach(it=>{ if(it.createdAt?.seconds){ const dt = new Date(it.createdAt.seconds*1000); const key = dt.toISOString().slice(0,10); byDay.set(key, true); }});
+      let streak = 0; for(let i=0;i<14;i++){ const d = new Date(); d.setDate(d.getDate()-i); const key = d.toISOString().slice(0,10); if(byDay.has(key)) streak++; else break; }
+      setSummary({ latest, streak });
+      // compute trends with mood pref, fallback to stress
+      const moods = items.map(it=>{
+        if(it.moodScore != null) return typeof it.moodScore === 'string' ? parseFloat(it.moodScore) : it.moodScore;
+        if(typeof it.mood === 'number') return it.mood;
+        if(typeof it.mood === 'string'){ const n = parseFloat(it.mood); return Number.isFinite(n) ? n : moodTextToScore(it.mood); }
+        if(it.score != null){ const n = typeof it.score === 'string' ? parseFloat(it.score) : it.score; return Number.isFinite(n)? n : null; }
+        return null;
+      }).filter(Number.isFinite);
+      const stress = items.map(it=>{
+        const v = it.stressScore ?? it.stress;
+        const n = typeof v === 'string' ? parseFloat(v) : v;
+        return Number.isFinite(n) ? n : null;
+      }).filter(Number.isFinite);
+      // Choose series to draw
+      if(moods.length >= 2){
+        setMoodSeries(moods);
+      } else if(stress.length >= 2){
+        setMoodSeries(stress);
+      } else {
+        setMoodSeries([]);
+      }
+      if(moods.length >= 1){
+        const avg = (moods.reduce((a,b)=>a+b,0)/moods.length).toFixed(1);
+        const delta = moods[moods.length-1] - moods[0];
+        const dir = delta>0? 'improving' : (delta<0? 'declining' : 'steady');
+        const avgStress = stress.length? (stress.reduce((a,b)=>a+b,0)/stress.length).toFixed(1) : '-';
+        setTrendText(`Mood avg ${avg}/10 • ${dir}${avgStress!=='-'? ` • Stress avg ${avgStress}/10`:''}`);
+      } else if(stress.length >= 1){
+        const avgS = (stress.reduce((a,b)=>a+b,0)/stress.length).toFixed(1);
+        const delta = stress[stress.length-1] - stress[0];
+        const dir = delta<0? 'improving' : (delta>0? 'rising' : 'steady');
+        setTrendText(`Stress avg ${avgS}/10 • ${dir}`);
+      } else {
+        setMoodSeries([]);
+        setTrendText('Log moods to see 7‑day trends');
+      }
+    });
+    return () => { try{ unsub(); }catch{} };
+  },[]);
 
   return (
     <GradientBackground>
@@ -161,12 +315,12 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.greetWrap}>
+        <View style={styles.greetWrap} accessible accessibilityLabel={`Greeting. ${greeting()}${displayName? `, ${displayName.split(' ')[0]}`:''}` }>
           <Text style={[styles.greetText, { color: theme.text }]}>{greeting()}{displayName? `, ${displayName.split(' ')[0]}`:''}</Text>
-          <Text style={[styles.tagline, { color: theme.textMuted }]}>Guided Meditation & Stress Relief</Text>
+          <Text accessibilityLabel='Guided Meditation and Stress Relief' style={[styles.tagline, { color: theme.textMuted }]}>Guided Meditation & Stress Relief</Text>
         </View>
 
-        <Text style={[styles.sectionLabel,{ color: theme.textMuted }]}>TODAY</Text>
+  <Text ref={todayHeaderRef} style={[styles.sectionLabel,{ color: theme.textMuted }]} accessibilityRole='header' accessibilityLabel='Today'>TODAY</Text>
   <Card style={[styles.snapshotCard, { backgroundColor: (mode === 'dark' ? moodTintDark(summary.latest?.mood) : moodTint(summary.latest?.mood)) }]}> 
           {loading ? (
             <View style={styles.loadingRow}><ActivityIndicator color={theme.primary} size="small" /><Text style={[styles.loadingTxt,{ color: theme.textMuted }]}> Loading summary...</Text></View>
@@ -187,7 +341,7 @@ export default function HomeScreen() {
                   <View style={[styles.snapshotRow, { marginBottom:10 }]}> 
                     <Text style={styles.moodEmoji}>{moodEmoji(summary.latest.mood)}</Text>
                     <View style={{ flex:1 }}>
-                      <Text style={[styles.snapshotTextMain,{ color: theme.text }]}>{latestMoodLabel()}</Text>
+                      <Text accessibilityLabel={`Latest: ${latestMoodLabel()}`} style={[styles.snapshotTextMain,{ color: theme.text }]}>{latestMoodLabel()}</Text>
                       <Text style={[styles.snapshotSub,{ color: theme.textMuted }]}>Keep consistent logging for better insights</Text>
                     </View>
                     <TouchableOpacity style={[styles.linkBtn,{ backgroundColor: theme.bg === '#0B1722' ? '#1b2b3b' : '#E3F2FD' }]} onPress={()=> navigate('/moodTracker','medium')} accessibilityLabel="Log another mood entry">
@@ -196,7 +350,7 @@ export default function HomeScreen() {
                   </View>
                   <View style={styles.snapshotRow}>
                     <Ionicons name="flame-outline" size={20} color={summary.streak>0? '#FF7043': theme.textMuted} />
-                    <Text style={[styles.snapshotText, { color: theme.text }]}>{summary.streak>0? `${summary.streak}-day streak` : 'No streak yet'}</Text>
+                    <Text accessibilityLabel={summary.streak>0? `${summary.streak} day streak` : 'No streak yet'} style={[styles.snapshotText, { color: theme.text }]}>{summary.streak>0? `${summary.streak}-day streak` : 'No streak yet'}</Text>
                   </View>
                 </>
               )}
@@ -209,7 +363,15 @@ export default function HomeScreen() {
           <PrimaryButton title="Start Meditation" onPress={()=> navigate('/meditation','medium')} fullWidth left={<Ionicons name='play-circle' size={18} color='#fff' />} />
         </View>
 
-        <Text style={[styles.sectionLabel,{ color: theme.textMuted }]}>INSIGHTS</Text>
+  <Text style={[styles.sectionLabel,{ color: theme.textMuted }]} accessibilityRole='header' accessibilityLabel='Insights'>INSIGHTS</Text>
+        {!!trendText && (
+          <Card style={{ padding:12, marginBottom: spacing.sm }}>
+            <Text accessibilityLabel={`Trend: ${trendText}`} style={[styles.snapshotSub,{ color: theme.text, marginBottom:8 }]}>{trendText}</Text>
+            {!!(moodSeries && moodSeries.length >= 2) && (
+              <Sparkline data={moodSeries} color={theme.primary} height={36} animate duration={420} />
+            )}
+          </Card>
+        )}
         <View style={styles.quickGrid}>
           <Pressable style={({ pressed })=> [styles.gridCard, pressed && styles.gridPressed]} onPress={()=> navigate('/plan')} accessibilityLabel="Open personalized plan" accessibilityRole='button'>
             <Ionicons name='sparkles-outline' size={26} color={theme.primary} />
@@ -229,8 +391,20 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        <Text style={[styles.sectionLabel,{ color: theme.textMuted }]}>TOOLS</Text>
+  <Text style={[styles.sectionLabel,{ color: theme.textMuted }]} accessibilityRole='header' accessibilityLabel='Tools'>TOOLS</Text>
+        {!!badges.length && (
+          <View style={[styles.badgesRow, { backgroundColor: theme.card }]}>
+            {badges.map(b => (
+              <View key={b.id} style={styles.badgePill}>
+                <Text style={styles.badgeEmoji}>{badgeEmoji(b.id)}</Text>
+                <Text style={styles.badgeText}>{b.name || b.id}</Text>
+              </View>
+            ))}
+          </View>
+        )}
         <View style={styles.secondaryList}>
+          <PrimaryButton accessibilityLabel='Open achievements' title="Achievements" onPress={()=> navigate('/achievements')} variant='secondary' fullWidth left={<Ionicons name='trophy-outline' size={18} color='#01579B' />} />
+          <View style={{ height: spacing.sm }} />
           <PrimaryButton title="Reminders" onPress={()=> navigate('/notifications')} variant='secondary' fullWidth left={<Ionicons name='notifications-outline' size={18} color='#01579B' />} />
           <View style={{ height: spacing.sm }} />
           <PrimaryButton title="Biometric Login" onPress={()=> navigate('/biometricLogin')} variant='secondary' fullWidth left={<Ionicons name='finger-print-outline' size={18} color='#01579B' />} />
@@ -276,6 +450,10 @@ const styles = StyleSheet.create({
   emptyEmoji:{ fontSize:40, marginBottom:4 },
   emptyTitle:{ fontSize:16, fontWeight:'800', marginBottom:2 },
   emptyDesc:{ fontSize:12, fontWeight:'600', textAlign:'center', marginBottom:10, paddingHorizontal:12 },
+  badgesRow:{ flexDirection:'row', flexWrap:'wrap', gap:6, padding:8, borderRadius:12, marginBottom: spacing.md },
+  badgePill:{ flexDirection:'row', alignItems:'center', backgroundColor:'#E3F2FD', paddingHorizontal:10, paddingVertical:6, borderRadius:16 },
+  badgeEmoji:{ fontSize:16, marginRight:6 },
+  badgeText:{ fontSize:11, fontWeight:'700', color:'#0277BD' },
   linkBtnLarge:{ flexDirection:'row', alignItems:'center', backgroundColor:'#E3F2FD', paddingHorizontal:14, paddingVertical:8, borderRadius:18, gap:6 },
   linkBtnLargeTxt:{ fontSize:13, fontWeight:'700', color:'#0277BD' },
   primaryCtaWrap:{ marginBottom: spacing.lg },

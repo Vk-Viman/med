@@ -1,5 +1,5 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, Alert, Switch, TouchableOpacity, Share, DeviceEventEmitter, SectionList, Image } from "react-native";
+﻿import React, { useEffect, useMemo, useState, useRef } from "react";
+import { View, Text, StyleSheet, Alert, Switch, TouchableOpacity, Share, DeviceEventEmitter, SectionList, Image, AccessibilityInfo, InteractionManager, findNodeHandle } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
@@ -8,9 +8,10 @@ import { auth } from "../firebase/firebaseConfig";
 import { signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword, deleteUser, sendEmailVerification } from "firebase/auth";
 import { spacing, radius, shadow } from "../src/theme";
 import { useTheme } from "../src/theme/ThemeProvider";
-import { exportAllMoodEntries, buildMoodCSV, buildMoodMarkdown, getLocalOnlyMode, setLocalOnlyMode, deleteAllMoodEntries, escrowEncryptDeviceKey, escrowDecryptDeviceKey, getEncryptionStatus, enablePassphraseProtection, disablePassphraseProtection, unlockWithPassphrase, lockEncryptionKey, migrateLegacyToV2 } from "../src/services/moodEntries";
+import { exportAllMoodEntries, buildMoodCSV, buildMoodMarkdown, getLocalOnlyMode, setLocalOnlyMode, deleteAllMoodEntries, escrowEncryptDeviceKey, escrowDecryptDeviceKey, getEncryptionStatus, enablePassphraseProtection, disablePassphraseProtection, unlockWithPassphrase, lockEncryptionKey, migrateLegacyToV2, backfillMoodScores } from "../src/services/moodEntries";
 import { getUserProfile, updateUserProfile, ensureUserProfile, deleteUserProfile } from '../src/services/userProfile';
 import { bumpSessionEpoch } from '../src/services/userProfile';
+import { getHapticsEnabled, setHapticsEnabled, initHapticsPref } from '../src/utils/haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { DeviceEventEmitter as RNEmitter } from 'react-native';
 
@@ -24,6 +25,7 @@ export default function SettingsScreen() {
   const { theme, mode, setThemeMode } = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const router = useRouter();
+  const titleRef = useRef(null);
   const [exporting, setExporting] = useState(false);
   const [localOnly, setLocalOnly] = useState(false);
   const [autoLock, setAutoLock] = useState(DEFAULT_INTERVAL);
@@ -47,6 +49,7 @@ export default function SettingsScreen() {
   const [sendingVerify, setSendingVerify] = useState(false);
   const [refreshingVerify, setRefreshingVerify] = useState(false);
   const [analyticsOptOut, setAnalyticsOptOut] = useState(false);
+  const [hapticsEnabled, setHapticsEnabledState] = useState(true);
   const [termsAcceptedVersion, setTermsAcceptedVersion] = useState(null);
   const [privacyAcceptedAt, setPrivacyAcceptedAt] = useState(null);
   const [showKeyEscrow, setShowKeyEscrow] = useState(false);
@@ -117,6 +120,7 @@ export default function SettingsScreen() {
 
   useEffect(()=>{ (async()=>{
     setLocalOnly(await getLocalOnlyMode());
+    try{ await initHapticsPref(); setHapticsEnabledState(await getHapticsEnabled()); }catch{}
     try{ const v = await AsyncStorage.getItem(AUTO_LOCK_KEY); if(v) setAutoLock(Number(v)); }catch{}
     try{ const b = await AsyncStorage.getItem(BIOMETRIC_PREF_KEY); if(b!==null) setBiometricPref(b==='1'); }catch{}
     // Load profile
@@ -185,6 +189,12 @@ export default function SettingsScreen() {
     try { await AsyncStorage.setItem(BIOMETRIC_PREF_KEY, val? '1':'0'); } catch {}
     try { await updateUserProfile({ biometricEnabled: val }); } catch {}
     Alert.alert('Biometrics', val? 'Biometric quick unlock enabled.' : 'Biometric quick unlock disabled.');
+  };
+
+  // ===== Haptics Toggle =====
+  const toggleHaptics = async (val) => {
+    setHapticsEnabledState(val);
+    try { await setHapticsEnabled(val); } catch {}
   };
 
   // ===== Auto-lock Interval =====
@@ -332,6 +342,7 @@ export default function SettingsScreen() {
       data: [
         { key:'localOnly', type:'toggle', label:'Local-Only Mode', value: localOnly, onValueChange: toggleLocalOnly },
         { key:'biometric', type:'toggle', label:'Biometric Unlock', value: biometricPref, onValueChange: toggleBiometric },
+        { key:'haptics', type:'toggle', label:'Haptics', value: hapticsEnabled, onValueChange: toggleHaptics },
   { key:'darkMode', type:'toggle', label:'Dark Mode', value: mode==='dark', onValueChange: async(val)=>{ const next = val? 'dark':'light'; setThemeModeLocal(next); try { await setThemeMode(next); } catch {} try { await updateUserProfile({ themeMode: next }); } catch {} } },
         { key:'analyticsOptOut', type:'toggle', label:'Analytics Opt-Out', value: analyticsOptOut, onValueChange: async(val)=>{ setAnalyticsOptOut(val); try { await updateUserProfile({ analyticsOptOut: val }); } catch {} } },
         { key:'autoLock', type:'choices', label:'Auto-Lock', value:autoLock }
@@ -348,6 +359,11 @@ export default function SettingsScreen() {
       title: 'Data Management',
       data: [
         { key:'export', type:'action', label: exporting? 'Exporting...' : 'Export Data', disabled: exporting, onPress: ()=>{ if(exporting) return; Alert.alert('Export Format','Choose a format to export your mood entries.',[ { text:'JSON', onPress:()=>doExport('json') }, { text:'CSV', onPress:()=>doExport('csv') }, { text:'Markdown', onPress:()=>doExport('md') }, { text:'Cancel', style:'cancel' } ]);} },
+        { key:'backfillMood', type:'action', label:'Backfill Mood Scores (90d)', onPress: async()=>{
+            try { const res = await backfillMoodScores({ days: 90 });
+              Alert.alert('Backfill Complete', `Updated ${res.updated} of ${res.scanned} entries in last ${res.days} days.`);
+            } catch(e){ Alert.alert('Backfill Error', e.message); }
+          }, variant:'secondary' },
         { key:'delAll', type:'action', label:'Delete All Data', danger:true, onPress: confirmDeleteAll }
       ]
     },
@@ -401,7 +417,7 @@ export default function SettingsScreen() {
       return (
         <View style={[styles.itemRow, styles.rowBetween]}>
           <Text style={styles.label}>{item.label}</Text>
-          <Switch accessibilityLabel={`Toggle: ${item.label}`} value={item.value} onValueChange={item.onValueChange} />
+          <Switch accessibilityLabel={`Toggle ${item.label}`} accessibilityHint={item.value? 'On. Double tap to turn off.' : 'Off. Double tap to turn on.'} value={item.value} onValueChange={item.onValueChange} />
         </View>
       );
     }
@@ -412,7 +428,7 @@ export default function SettingsScreen() {
             <Text style={styles.label}>{item.label}</Text>
             <View style={styles.inlineOptions}>
               {INTERVAL_OPTIONS.map(opt => (
-                <TouchableOpacity key={opt} style={[styles.intervalChip, autoLock===opt && styles.intervalChipActive]} onPress={()=>changeAutoLock(opt)}>
+                <TouchableOpacity key={opt} style={[styles.intervalChip, autoLock===opt && styles.intervalChipActive]} onPress={()=>changeAutoLock(opt)} accessibilityLabel={`Auto lock ${formatInterval(opt)}`} accessibilityState={{ selected: autoLock===opt }} accessibilityRole='button'>
                   <Text style={[styles.intervalChipText, autoLock===opt && styles.intervalChipTextActive]}>{formatInterval(opt)}</Text>
                 </TouchableOpacity>
               ))}
@@ -551,16 +567,32 @@ export default function SettingsScreen() {
     return null;
   };
 
+  useEffect(()=>{
+    const t = setTimeout(()=>{
+      InteractionManager.runAfterInteractions(()=>{
+        AccessibilityInfo.isScreenReaderEnabled().then((enabled)=>{
+          if(!enabled) return;
+          try {
+            const tag = findNodeHandle(titleRef.current);
+            if(tag) AccessibilityInfo.setAccessibilityFocus?.(tag);
+          } catch {}
+          AccessibilityInfo.announceForAccessibility('Settings. Manage account, privacy, and encryption.');
+        }).catch(()=>{});
+      });
+    }, 400);
+    return ()=> clearTimeout(t);
+  },[]);
+
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Settings</Text>
+      <Text ref={titleRef} style={styles.title} accessibilityRole='header' accessibilityLabel='Settings'>Settings</Text>
       <SectionList
         sections={sections}
         keyExtractor={(item)=> item.key}
         renderItem={renderItem}
         stickySectionHeadersEnabled
         renderSectionHeader={({ section: { title } }) => (
-          <View style={styles.stickyHeader}><Text style={styles.sectionHeading}>{title}</Text></View>
+          <View style={styles.stickyHeader}><Text accessibilityRole='header' style={styles.sectionHeading}>{title}</Text></View>
         )}
         contentContainerStyle={styles.listContent}
         ItemSeparatorComponent={()=> <View style={styles.itemSeparator} />}

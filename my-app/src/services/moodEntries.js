@@ -29,6 +29,7 @@ async function isLocalOnly(){
 export async function setLocalOnlyMode(enabled){
   try { await AsyncStorage.setItem(LOCAL_ONLY_KEY, enabled? '1':'0'); } catch {}
   DeviceEventEmitter.emit('local-only-changed', { enabled });
+
 }
 export async function getLocalOnlyMode(){ return isLocalOnly(); }
 async function isPassphraseProtectionEnabled(){
@@ -110,14 +111,18 @@ export async function flushQueue(){
   let queue = await loadQueue();
   if(!queue.length) return;
   const remaining = [];
+  let mutated = false;
   for(const item of queue){
     try{
       if(item.op === 'create'){
         await setDoc(doc(db, `users/${uid}/moods`, item.id), item.payload);
+        mutated = true;
       } else if(item.op === 'update') {
         await updateDoc(doc(db, `users/${uid}/moods`, item.id), item.payload);
+        mutated = true;
       } else if(item.op === 'delete') {
         await deleteDoc(doc(db, `users/${uid}/moods`, item.id));
+        mutated = true;
       }
     }catch(e){
       // Keep failed item for next attempt
@@ -125,18 +130,21 @@ export async function flushQueue(){
     }
   }
   await saveQueue(remaining);
+  if(mutated){ try{ await bumpChartCacheVersion(); }catch{} }
 }
 
 export async function createMoodEntry({ mood, stress, note }){
   const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');
   const { cipher, iv, encVer, alg } = await encryptV2(note || '');
   const id = `${Date.now()}`;
-  const payload = { mood, stress, noteCipher: cipher, noteIv: iv, encVer, noteAlg: alg, createdAt: serverTimestamp() };
+  // Derive a numeric moodScore when possible to support insights
+  const moodScore = deriveMoodScore(mood);
+  const payload = { mood, moodScore, stress, noteCipher: cipher, noteIv: iv, encVer, noteAlg: alg, createdAt: serverTimestamp() };
   if(await isLocalOnly()){
     // queue only (simulate offline) with concrete date
     await enqueue({ op:'create', id, payload: { ...payload, createdAt: new Date() } });
   } else {
-    try { await setDoc(doc(db, `users/${uid}/moods`, id), payload); }
+    try { await setDoc(doc(db, `users/${uid}/moods`, id), payload); try{ await bumpChartCacheVersion(); }catch{} }
     catch(e){ await enqueue({ op:'create', id, payload: { ...payload, createdAt: new Date() } }); }
   }
   return id;
@@ -147,17 +155,36 @@ export async function updateMoodEntry(id, { mood, stress, note, legacyToV2=false
   let payload;
   if(legacyToV2){
     const { cipher, iv, encVer, alg } = await encryptV2(note || '');
-    payload = { mood, stress, noteCipher: cipher, noteIv: iv, encVer, noteAlg: alg, note: null };
+    const moodScore = deriveMoodScore(mood);
+    payload = { mood, moodScore, stress, noteCipher: cipher, noteIv: iv, encVer, noteAlg: alg, note: null };
   } else {
     const { cipher, iv, encVer, alg } = await encryptV2(note || '');
-    payload = { mood, stress, noteCipher: cipher, noteIv: iv, encVer, noteAlg: alg };
+    const moodScore = deriveMoodScore(mood);
+    payload = { mood, moodScore, stress, noteCipher: cipher, noteIv: iv, encVer, noteAlg: alg };
   }
   if(await isLocalOnly()){
     await enqueue({ op:'update', id, payload });
   } else {
-    try { await updateDoc(doc(db, `users/${uid}/moods`, id), payload); }
+    try { await updateDoc(doc(db, `users/${uid}/moods`, id), payload); try{ await bumpChartCacheVersion(); }catch{} }
     catch(e){ await enqueue({ op:'update', id, payload }); }
   }
+}
+
+// --- Helpers ---
+function deriveMoodScore(mood){
+  if(mood == null) return null;
+  if(typeof mood === 'number') return mood;
+  // parse numeric string
+  const n = parseFloat(mood);
+  if(Number.isFinite(n)) return n;
+  // map common labels
+  const t = String(mood).toLowerCase();
+  if(t.includes('happy')) return 9;
+  if(t.includes('calm')) return 8;
+  if(t.includes('ok') || t.includes('neutral')) return 6;
+  if(t.includes('stress')) return 4;
+  if(t.includes('sad')) return 2;
+  return 5;
 }
 
 export async function deleteMoodEntry(id){
@@ -165,7 +192,7 @@ export async function deleteMoodEntry(id){
   if(await isLocalOnly()){
     await enqueue({ op:'delete', id, payload:{} });
   } else {
-    try{ await deleteDoc(doc(db, `users/${uid}/moods`, id)); }
+    try{ await deleteDoc(doc(db, `users/${uid}/moods`, id)); try{ await bumpChartCacheVersion(); }catch{} }
     catch(e){ await enqueue({ op:'delete', id, payload:{} }); }
   }
 }
@@ -210,6 +237,82 @@ export async function listMoodEntriesBetween({ startDate, endDate }){
   const docs = [];
   snap.forEach(d => docs.push(d));
   return docs;
+}
+
+// ===== Lightweight caching for chart-friendly public data (mood, stress, createdAt) =====
+// We avoid caching decrypted notes (sensitive). Cache TTL defaults to 5 minutes.
+const CHART_CACHE_PREFIX = 'cache_chart_v1';
+const CHART_CACHE_VER_PREFIX = 'cache_chart_ver_v1';
+function chartVerKey(uid){ return `${CHART_CACHE_VER_PREFIX}:${uid}`; }
+async function getChartCacheVersion(uid){
+  try { const v = await AsyncStorage.getItem(chartVerKey(uid)); return v ? Number(v) : 1; } catch { return 1; }
+}
+async function bumpChartCacheVersion(){
+  const uid = auth.currentUser?.uid; if(!uid) return;
+  try { const cur = await getChartCacheVersion(uid); await AsyncStorage.setItem(chartVerKey(uid), String(cur + 1)); } catch {}
+}
+function chartCacheKey(kind, uid, extra, ver){
+  return `${CHART_CACHE_PREFIX}:v${ver}:${kind}:${uid}:${extra}`;
+}
+async function cacheGet(key){
+  try{ const raw = await AsyncStorage.getItem(key); if(!raw) return null; const parsed = JSON.parse(raw); return parsed || null; }catch{ return null; }
+}
+async function cacheSet(key, value){
+  try{ await AsyncStorage.setItem(key, JSON.stringify(value)); }catch{}
+}
+
+// Returns [{ createdAtSec, mood, moodScore, stress }]
+export async function getChartDataSince({ days = 7, ttlMs = 5 * 60 * 1000 } = {}){
+  const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');
+  const ver = await getChartCacheVersion(uid);
+  const key = chartCacheKey('since', uid, days, ver);
+  const now = Date.now();
+  const cached = await cacheGet(key);
+  if(cached && (now - (cached.ts || 0) < ttlMs)){
+    return cached.rows || [];
+  }
+  const docs = await listMoodEntriesSince({ days });
+  const rows = docs.map(d => {
+    const data = d.data();
+    const createdAtSec = data.createdAt?.seconds || null;
+    const mood = data.mood;
+    const stressRaw = data.stress ?? data.stressScore;
+    const stress = typeof stressRaw === 'string' ? parseFloat(stressRaw) : stressRaw;
+    const moodScore = data.moodScore ?? deriveMoodScore(mood);
+    return { createdAtSec, mood, moodScore, stress: Number.isFinite(stress) ? stress : null };
+  });
+  await cacheSet(key, { ts: now, rows });
+  return rows;
+}
+
+export async function getChartDataBetween({ startDate, endDate, ttlMs = 5 * 60 * 1000 } = {}){
+  const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');
+  if(!startDate || !endDate) return [];
+  const ver = await getChartCacheVersion(uid);
+  const extra = `${startDate.toISOString().slice(0,10)}_${endDate.toISOString().slice(0,10)}`;
+  const key = chartCacheKey('between', uid, extra, ver);
+  const now = Date.now();
+  const cached = await cacheGet(key);
+  if(cached && (now - (cached.ts || 0) < ttlMs)){
+    return cached.rows || [];
+  }
+  const docs = await listMoodEntriesBetween({ startDate, endDate });
+  const rows = docs.map(d => {
+    const data = d.data();
+    const createdAtSec = data.createdAt?.seconds || null;
+    const mood = data.mood;
+    const stressRaw = data.stress ?? data.stressScore;
+    const stress = typeof stressRaw === 'string' ? parseFloat(stressRaw) : stressRaw;
+    const moodScore = data.moodScore ?? deriveMoodScore(mood);
+    return { createdAtSec, mood, moodScore, stress: Number.isFinite(stress) ? stress : null };
+  });
+  await cacheSet(key, { ts: now, rows });
+  return rows;
+}
+
+// Public invalidation API for other modules if needed
+export async function invalidateChartCache(){
+  await bumpChartCacheVersion();
 }
 
 export async function decryptEntry(uid, entry){
@@ -289,6 +392,7 @@ export async function deleteAllMoodEntries(){
   }
   // also clear offline queue since stale operations might recreate data
   try { await AsyncStorage.removeItem('offlineMoodQueue'); } catch {}
+  try { await bumpChartCacheVersion(); } catch {}
 }
 
 // Lightweight summary: latest mood entry & streak (consecutive days including today)
@@ -449,4 +553,35 @@ export async function migrateLegacyToV2({ dryRun=false } = {}){
     }catch(e){ failed++; }
   }
   return { total, legacyFound, migrated, failed, dryRun };
+}
+
+// ===== Backfill: Populate numeric moodScore for historical entries =====
+// Computes moodScore from stored mood field when missing, limited to a recent window
+// Returns a summary: { scanned, updated, skipped, days }
+export async function backfillMoodScores({ days = 90 } = {}){
+  const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');
+  if(days && (!Number.isFinite(days) || days <= 0)) days = 90;
+  // Build time window starting at 00:00 for (days-1) days ago
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  start.setDate(start.getDate() - (days - 1));
+  const startTs = Timestamp.fromDate(start);
+  const qRef = query(collection(db, `users/${uid}/moods`), where('createdAt','>=', startTs), orderBy('createdAt','asc'));
+  const snap = await getDocs(qRef);
+  let scanned = 0, updated = 0, skipped = 0;
+  for(const d of snap.docs){
+    scanned++;
+    const data = d.data();
+    // Only backfill if moodScore missing or null and mood exists
+    const hasScore = data.moodScore !== undefined && data.moodScore !== null;
+    if(hasScore){ skipped++; continue; }
+    const score = deriveMoodScore(data.mood);
+    if(score === null || score === undefined){ skipped++; continue; }
+    try {
+      await updateDoc(doc(db, `users/${uid}/moods`, d.id), { moodScore: score });
+      updated++;
+    } catch(e){ skipped++; }
+  }
+  try { if(updated>0) await bumpChartCacheVersion(); } catch {}
+  return { scanned, updated, skipped, days };
 }

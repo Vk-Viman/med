@@ -1,14 +1,14 @@
 import React, { useRef } from "react";
 import { TouchableOpacity, Text, StyleSheet, View, Animated, StyleSheet as RNStyleSheet } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import * as Haptics from "expo-haptics";
+import { impact } from "../utils/haptics";
 
-export default function PrimaryButton({ title, onPress, style, disabled, variant = "primary", left, right, fullWidth }) {
+export default function PrimaryButton({ title, onPress, style, disabled, variant = "primary", left, right, fullWidth, accessibilityLabel }) {
   const scale = useRef(new Animated.Value(1)).current;
   const pressIn = () => Animated.spring(scale, { toValue: 0.98, useNativeDriver: true, speed: 30 }).start();
   const pressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 30 }).start();
   const handlePress = async () => {
-    try { await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+    try { await impact('light'); } catch {}
     onPress && onPress();
   };
 
@@ -16,6 +16,8 @@ export default function PrimaryButton({ title, onPress, style, disabled, variant
     <Animated.View style={{ transform: [{ scale }] }}>
       <TouchableOpacity
         accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel || (typeof title === 'string' ? title : undefined)}
+        accessibilityState={{ disabled: !!disabled }}
         style={[
           styles.btn,
           variant === "secondary" && styles.secondary,
@@ -28,6 +30,7 @@ export default function PrimaryButton({ title, onPress, style, disabled, variant
         disabled={disabled}
         onPressIn={pressIn}
         onPressOut={pressOut}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
         {variant !== "secondary" && (
           <LinearGradient

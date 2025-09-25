@@ -1,16 +1,45 @@
-﻿import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, Dimensions, Alert } from "react-native";
+﻿import React, { useEffect, useRef, useState } from "react";
+import { View, Text, StyleSheet, Dimensions, Alert, Platform, ScrollView, AccessibilityInfo, InteractionManager, findNodeHandle } from "react-native";
 import GradientBackground from "../src/components/GradientBackground";
 import Card from "../src/components/Card";
 import { auth } from "../firebase/firebaseConfig";
 import { collection, query, where, onSnapshot, Timestamp } from "firebase/firestore";
 import { db } from "../firebase/firebaseConfig";
 import { LineChart } from "react-native-chart-kit";
+import * as LocalAuthentication from "expo-local-authentication";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
+
+const BIOMETRIC_PREF_KEY = 'pref_biometric_enabled_v1';
 
 export default function WeeklyReportScreen() {
   const [minutesByDay, setMinutesByDay] = useState([0, 0, 0, 0, 0, 0, 0]);
+  const [unlocked, setUnlocked] = useState(false);
+  const router = useRouter();
+  const titleRef = useRef(null);
+
+  // Biometric gate on enter (if user enabled it)
+  useEffect(() => {
+    (async () => {
+      try {
+        const pref = await AsyncStorage.getItem(BIOMETRIC_PREF_KEY);
+        const enabled = pref === '1';
+        if (!enabled) { setUnlocked(true); return; }
+        // Skip on web
+        if (Platform.OS === 'web') { setUnlocked(true); return; }
+        const hasHardware = await LocalAuthentication.hasHardwareAsync();
+        const enrolled = await LocalAuthentication.isEnrolledAsync();
+        if (!hasHardware || !enrolled) { setUnlocked(true); return; }
+        const res = await LocalAuthentication.authenticateAsync({ promptMessage: "Unlock report" });
+        if (res.success) { setUnlocked(true); } else { Alert.alert('Locked', 'Biometric authentication canceled.'); try { router.back(); } catch {} }
+      } catch {
+        setUnlocked(true);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
+    if (!unlocked) return;
     const user = auth.currentUser;
     if (!user) return;
     const now = new Date();
@@ -39,7 +68,25 @@ export default function WeeklyReportScreen() {
     } catch (e) {
       Alert.alert("Error", e.message);
     }
-  }, []);
+  }, [unlocked]);
+
+  // Announce screen and focus heading after interactions
+  useEffect(() => {
+    if (!unlocked) return;
+    const t = setTimeout(() => {
+      InteractionManager.runAfterInteractions(() => {
+        AccessibilityInfo.isScreenReaderEnabled().then((enabled) => {
+          if (!enabled) return;
+          try {
+            const tag = findNodeHandle(titleRef.current);
+            if (tag) AccessibilityInfo.setAccessibilityFocus?.(tag);
+          } catch {}
+          AccessibilityInfo.announceForAccessibility('Weekly Report. Meditation minutes for the past week.');
+        }).catch(()=>{});
+      });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [unlocked]);
 
   const screenWidth = Dimensions.get("window").width - 24;
   // Build labels as dates (e.g., 17, 18, 19, ..., Today)
@@ -60,37 +107,37 @@ export default function WeeklyReportScreen() {
 
   return (
     <GradientBackground>
-    <View style={styles.container}>
-      <Text style={styles.title}>Weekly Report</Text>
-      <Card>
-        <LineChart
-          data={{ labels: dateLabels, datasets: [{ data: minutesByDay }] }}
-          width={screenWidth}
-          height={220}
-          yAxisSuffix="m"
-          chartConfig={{
-            backgroundColor: "transparent",
-            backgroundGradientFrom: "#FFFFFF",
-            backgroundGradientTo: "#FFFFFF",
-            decimalPlaces: 1,
-            color: (opacity = 1) => `rgba(2, 136, 209, ${opacity})`,
-            labelColor: () => "#01579B",
-          }}
-          bezier
-          style={{ borderRadius: 12 }}
-        />
-      </Card>
-      <Text style={styles.total}>Total minutes: {minutesByDay.reduce((a, b) => a + b, 0).toFixed(1)}</Text>
-      {noData && (
-        <Text style={styles.hint}>Tip: press Play for a short session, then Pause to log it.</Text>
-      )}
-  </View>
-  </GradientBackground>
+      <ScrollView style={{ flex:1 }} contentContainerStyle={styles.container}>
+  <Text ref={titleRef} style={styles.title} accessibilityRole='header' accessibilityLabel='Weekly Report'>Weekly Report</Text>
+        <Card>
+          <LineChart
+            data={{ labels: dateLabels, datasets: [{ data: minutesByDay }] }}
+            width={screenWidth}
+            height={220}
+            yAxisSuffix="m"
+            chartConfig={{
+              backgroundColor: "transparent",
+              backgroundGradientFrom: "#FFFFFF",
+              backgroundGradientTo: "#FFFFFF",
+              decimalPlaces: 1,
+              color: (opacity = 1) => `rgba(2, 136, 209, ${opacity})`,
+              labelColor: () => "#01579B",
+            }}
+            bezier
+            style={{ borderRadius: 12 }}
+          />
+        </Card>
+        <Text style={styles.total}>Total minutes: {minutesByDay.reduce((a, b) => a + b, 0).toFixed(1)}</Text>
+        {noData && (
+          <Text style={styles.hint}>Tip: press Play for a short session, then Pause to log it.</Text>
+        )}
+      </ScrollView>
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 12 },
+  container: { padding: 12, paddingBottom: 24 },
   title: { fontSize: 22, fontWeight: "bold", color: "#0288D1", marginBottom: 8 },
   total: { marginTop: 12, fontWeight: "600", color: "#01579B" },
   hint: { marginTop: 8, color: "#607D8B" },
