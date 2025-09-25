@@ -4,6 +4,7 @@ import { AppState, TouchableWithoutFeedback, View, Text, StyleSheet, DeviceEvent
 import { getUserProfile, updateUserProfile } from '../src/services/userProfile';
 import { deleteAllMoodEntries } from '../src/services/moodEntries';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import { ThemeProvider, useTheme } from "../src/theme/ThemeProvider";
 import { DeviceEventEmitter as RNEmitter } from 'react-native';
 
@@ -72,6 +73,12 @@ function ActivityWrapper({ children }){
         await deleteAllMoodEntries();
         try { await AsyncStorage.removeItem('offlineMoodQueue'); } catch {}
         try { await AsyncStorage.removeItem('secure_mood_key_cache_b64'); } catch {}
+        // Also clear from SecureStore
+        try { await SecureStore.deleteItemAsync('secure_mood_key_v1', { keychainService: 'secure_mood_key_v1' }); } catch {}
+        try { await SecureStore.deleteItemAsync('e2e_passphrase_blob_v1', { keychainService: 'e2e_passphrase_blob_v1' }); } catch {}
+        // Clear passphrase wrapped blobs and flags
+        try { await AsyncStorage.removeItem('e2e_passphrase_blob_cache_v1'); } catch {}
+        try { await AsyncStorage.removeItem('e2e_passphrase_enabled_v1'); } catch {}
         try { await AsyncStorage.removeItem(PENDING_FLAG); } catch {}
         return true;
       } catch { return false; }

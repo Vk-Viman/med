@@ -18,6 +18,10 @@ function getLegacyKeyIv(uid){
 const SECURE_KEY_ID = 'secure_mood_key_v1'; // base64 encoded 32 random bytes
 const SECURE_KEY_CACHE_KEY = 'secure_mood_key_cache_b64';
 let memoryKey = null;
+// Optional passphrase protection (wrap device key, never store plaintext at rest)
+const PASS_WRAP_ENABLED_KEY = 'e2e_passphrase_enabled_v1';
+const PASS_WRAP_BLOB_KEY = 'e2e_passphrase_blob_v1'; // JSON string of { encDeviceKey, encIv, kdfSalt, kdfIter, ... }
+const PASS_WRAP_BLOB_CACHE_KEY = 'e2e_passphrase_blob_cache_v1';
 const LOCAL_ONLY_KEY = 'privacy_local_only_v1';
 async function isLocalOnly(){
   try { const v = await AsyncStorage.getItem(LOCAL_ONLY_KEY); return v === '1'; } catch { return false; }
@@ -27,8 +31,20 @@ export async function setLocalOnlyMode(enabled){
   DeviceEventEmitter.emit('local-only-changed', { enabled });
 }
 export async function getLocalOnlyMode(){ return isLocalOnly(); }
+async function isPassphraseProtectionEnabled(){
+  try { const v = await AsyncStorage.getItem(PASS_WRAP_ENABLED_KEY); return v === '1'; } catch { return false; }
+}
+
 async function getOrCreateSecureKey(){
   if(memoryKey) return memoryKey;
+  // If passphrase wrapping is enabled, we never return a key unless unlocked
+  if(await isPassphraseProtectionEnabled()){
+    // Attempt to detect if an unlocked session exists; otherwise, signal locked state
+    if(memoryKey) return memoryKey;
+    const err = new Error('Encryption key locked. Unlock with passphrase.');
+    err.code = 'EKEYLOCKED';
+    throw err;
+  }
   let k = await SecureStore.getItemAsync(SECURE_KEY_ID);
   if(!k){
     // fallback: maybe stored in AsyncStorage cache (e.g., emulator wiped secure store)
@@ -333,6 +349,104 @@ export async function escrowDecryptDeviceKey(passphrase, { encDeviceKey, encIv, 
     const derived = pbkdf2Key(passphrase, kdfSalt);
     const ivWA = CryptoJS.enc.Base64.parse(encIv);
     const pt = CryptoJS.AES.decrypt(encDeviceKey, derived, { iv: ivWA, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }).toString(CryptoJS.enc.Utf8);
-    return pt || null;
+    // If escrow import is used to restore this device key, persist it
+    if(pt){
+      try { await SecureStore.setItemAsync(SECURE_KEY_ID, pt, { keychainService: SECURE_KEY_ID }); } catch {}
+      try { await AsyncStorage.setItem(SECURE_KEY_CACHE_KEY, pt); } catch {}
+      memoryKey = pt;
+      return pt;
+    }
+    return null;
   } catch { return null; }
+}
+
+// ===== Optional Passphrase Protection (wrap device key locally) =====
+export async function getEncryptionStatus(){
+  const passEnabled = await isPassphraseProtectionEnabled();
+  return { encVer: 2, algorithm: 'aes-256-cbc-pkcs7', passphraseProtected: passEnabled };
+}
+
+export async function enablePassphraseProtection(passphrase){
+  if(!passphrase || passphrase.length < 6) throw new Error('Passphrase must be at least 6 characters.');
+  // Ensure we have a device key; if passphrase already enabled, try to use current memoryKey (unlocked)
+  let deviceKeyB64;
+  if(await isPassphraseProtectionEnabled()){
+    if(!memoryKey){ const err = new Error('Key is locked. Unlock first.'); err.code = 'EKEYLOCKED'; throw err; }
+    deviceKeyB64 = memoryKey;
+  } else {
+    deviceKeyB64 = await getOrCreateSecureKey();
+  }
+  // Wrap it
+  const saltBytes = await ExpoCrypto.getRandomBytesAsync(16);
+  const saltWA = CryptoJS.lib.WordArray.create(saltBytes);
+  const saltB64 = CryptoJS.enc.Base64.stringify(saltWA);
+  const derived = pbkdf2Key(passphrase, saltB64);
+  const { ivWA, ivB64 } = await randomIvBase64();
+  const ct = CryptoJS.AES.encrypt(deviceKeyB64, derived, { iv: ivWA, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 });
+  const blob = JSON.stringify({ encDeviceKey: ct.toString(), encIv: ivB64, kdfSalt: saltB64, kdfIter: 100000, kdfAlg:'pbkdf2-sha256', encAlg:'aes-256-cbc-pkcs7' });
+  // Persist wrapped blob, and remove plaintext at rest
+  try { await SecureStore.setItemAsync(PASS_WRAP_BLOB_KEY, blob, { keychainService: PASS_WRAP_BLOB_KEY }); } catch {}
+  try { await AsyncStorage.setItem(PASS_WRAP_BLOB_CACHE_KEY, blob); } catch {}
+  try { await AsyncStorage.setItem(PASS_WRAP_ENABLED_KEY, '1'); } catch {}
+  // Remove plaintext device key from storage (keep in-memory for current session)
+  try { await SecureStore.deleteItemAsync(SECURE_KEY_ID, { keychainService: SECURE_KEY_ID }); } catch {}
+  try { await AsyncStorage.removeItem(SECURE_KEY_CACHE_KEY); } catch {}
+  // Keep memoryKey as-is for current session (already set above)
+  return true;
+}
+
+export async function unlockWithPassphrase(passphrase){
+  if(!passphrase) throw new Error('Passphrase required');
+  if(!(await isPassphraseProtectionEnabled())) return true; // nothing to do
+  // Load blob
+  let blob = await SecureStore.getItemAsync(PASS_WRAP_BLOB_KEY);
+  if(!blob){ blob = await AsyncStorage.getItem(PASS_WRAP_BLOB_CACHE_KEY); }
+  if(!blob) throw new Error('No wrapped key found on this device.');
+  let parsed; try { parsed = JSON.parse(blob); } catch { throw new Error('Wrapped key is corrupt.'); }
+  const { encDeviceKey, encIv, kdfSalt } = parsed;
+  const derived = pbkdf2Key(passphrase, kdfSalt);
+  const ivWA = CryptoJS.enc.Base64.parse(encIv);
+  const pt = CryptoJS.AES.decrypt(encDeviceKey, derived, { iv: ivWA, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }).toString(CryptoJS.enc.Utf8);
+  if(!pt) throw new Error('Incorrect passphrase.');
+  // Cache in memory for this session only
+  memoryKey = pt;
+  return true;
+}
+
+export async function disablePassphraseProtection(){
+  if(!(await isPassphraseProtectionEnabled())) return true;
+  if(!memoryKey){ const err = new Error('Key is locked. Unlock first.'); err.code='EKEYLOCKED'; throw err; }
+  // Re-store plaintext device key back to secure storage (maintain AsyncStorage cache as fallback)
+  try { await SecureStore.setItemAsync(SECURE_KEY_ID, memoryKey, { keychainService: SECURE_KEY_ID }); } catch {}
+  try { await AsyncStorage.setItem(SECURE_KEY_CACHE_KEY, memoryKey); } catch {}
+  try { await AsyncStorage.setItem(PASS_WRAP_ENABLED_KEY, '0'); } catch {}
+  try { await SecureStore.deleteItemAsync(PASS_WRAP_BLOB_KEY, { keychainService: PASS_WRAP_BLOB_KEY }); } catch {}
+  try { await AsyncStorage.removeItem(PASS_WRAP_BLOB_CACHE_KEY); } catch {}
+  return true;
+}
+
+export function lockEncryptionKey(){ memoryKey = null; return true; }
+
+// ===== Migration: Legacy deterministic (v1) -> v2 (random key + per-entry IV) =====
+export async function migrateLegacyToV2({ dryRun=false } = {}){
+  const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');
+  const qRef = query(collection(db, `users/${uid}/moods`));
+  const snap = await getDocs(qRef);
+  let total=0, legacyFound=0, migrated=0, failed=0;
+  for(const d of snap.docs){
+    total++;
+    const data = d.data();
+    const isLegacy = !!data.note && !(data.encVer === 2 && data.noteCipher && data.noteIv);
+    if(!isLegacy) continue;
+    legacyFound++;
+    if(dryRun) continue;
+    try{
+      const { key, iv } = getLegacyKeyIv(uid);
+      const note = CryptoJS.AES.decrypt(data.note, key, { iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }).toString(CryptoJS.enc.Utf8) || '';
+      const { cipher, iv: newIv, encVer, alg } = await encryptV2(note || '');
+      await updateDoc(doc(db, `users/${uid}/moods`, d.id), { noteCipher: cipher, noteIv: newIv, encVer, noteAlg: alg, note: null });
+      migrated++;
+    }catch(e){ failed++; }
+  }
+  return { total, legacyFound, migrated, failed, dryRun };
 }

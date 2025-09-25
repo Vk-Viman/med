@@ -8,7 +8,7 @@ import { auth } from "../firebase/firebaseConfig";
 import { signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword, deleteUser, sendEmailVerification } from "firebase/auth";
 import { spacing, radius, shadow } from "../src/theme";
 import { useTheme } from "../src/theme/ThemeProvider";
-import { exportAllMoodEntries, buildMoodCSV, buildMoodMarkdown, getLocalOnlyMode, setLocalOnlyMode, deleteAllMoodEntries, escrowEncryptDeviceKey, escrowDecryptDeviceKey } from "../src/services/moodEntries";
+import { exportAllMoodEntries, buildMoodCSV, buildMoodMarkdown, getLocalOnlyMode, setLocalOnlyMode, deleteAllMoodEntries, escrowEncryptDeviceKey, escrowDecryptDeviceKey, getEncryptionStatus, enablePassphraseProtection, disablePassphraseProtection, unlockWithPassphrase, lockEncryptionKey, migrateLegacyToV2 } from "../src/services/moodEntries";
 import { getUserProfile, updateUserProfile, ensureUserProfile, deleteUserProfile } from '../src/services/userProfile';
 import { bumpSessionEpoch } from '../src/services/userProfile';
 import * as ImagePicker from 'expo-image-picker';
@@ -59,6 +59,18 @@ export default function SettingsScreen() {
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [showConfirmPassphrase, setShowConfirmPassphrase] = useState(false);
   const [showImportPassphrase, setShowImportPassphrase] = useState(false);
+  // Encryption management
+  const [encStatus, setEncStatus] = useState({ passphraseProtected:false, algorithm:'', encVer:2 });
+  const [encExpanded, setEncExpanded] = useState(false);
+  const [encPass, setEncPass] = useState('');
+  const [encPass2, setEncPass2] = useState('');
+  const [unlockPass, setUnlockPass] = useState('');
+  const [showEncPass, setShowEncPass] = useState(false);
+  const [showEncPass2, setShowEncPass2] = useState(false);
+  const [showUnlockPass, setShowUnlockPass] = useState(false);
+  const [busyEnc, setBusyEnc] = useState(false);
+  const [migrateExpanded, setMigrateExpanded] = useState(false);
+  const [migrateResult, setMigrateResult] = useState(null);
 
   // ===== Key Escrow Handlers =====
   const handleCreateEscrow = async () => {
@@ -91,8 +103,8 @@ export default function SettingsScreen() {
       setImporting(true);
       let parsed;
       try { parsed = JSON.parse(importData); } catch { throw new Error('Invalid JSON'); }
-      if(parsed?.type !== 'keyEscrow.v1' || !parsed.data) throw new Error('Unsupported escrow blob');
-      const ok = await escrowDecryptDeviceKey(parsed.data, importPassphrase);
+  if(parsed?.type !== 'keyEscrow.v1' || !parsed.data) throw new Error('Unsupported escrow blob');
+  const ok = await escrowDecryptDeviceKey(importPassphrase, parsed.data);
       if(ok){
         Alert.alert('Escrow','Escrow import successful. Encryption key restored for this device.');
         setImportData(''); setImportPassphrase('');
@@ -108,9 +120,12 @@ export default function SettingsScreen() {
     try{ const v = await AsyncStorage.getItem(AUTO_LOCK_KEY); if(v) setAutoLock(Number(v)); }catch{}
     try{ const b = await AsyncStorage.getItem(BIOMETRIC_PREF_KEY); if(b!==null) setBiometricPref(b==='1'); }catch{}
     // Load profile
-  try { await ensureUserProfile(); const prof = await getUserProfile(); if(prof){ setDisplayName(prof.displayName || ''); if(typeof prof.biometricEnabled === 'boolean') setBiometricPref(prof.biometricEnabled); if(prof.avatarB64) setAvatarB64(prof.avatarB64); if(prof.themeMode==='dark'||prof.themeMode==='light'){ setThemeModeLocal(prof.themeMode); try { await setThemeMode(prof.themeMode); } catch {} } if(typeof prof.analyticsOptOut === 'boolean') setAnalyticsOptOut(prof.analyticsOptOut); if('termsAcceptedVersion' in prof) setTermsAcceptedVersion(prof.termsAcceptedVersion); if('privacyAcceptedAt' in prof) setPrivacyAcceptedAt(prof.privacyAcceptedAt); } } catch {}
+  try { await ensureUserProfile(); const prof = await getUserProfile(); if(prof){ setDisplayName(prof.displayName || ''); if(typeof prof.biometricEnabled === 'boolean') setBiometricPref(prof.biometricEnabled); if(prof.avatarB64) setAvatarB64(prof.avatarB64); if(prof.themeMode==='dark'||prof.themeMode==='light'){ setThemeModeLocal(prof.themeMode); } if(typeof prof.analyticsOptOut === 'boolean') setAnalyticsOptOut(prof.analyticsOptOut); if('termsAcceptedVersion' in prof) setTermsAcceptedVersion(prof.termsAcceptedVersion); if('privacyAcceptedAt' in prof) setPrivacyAcceptedAt(prof.privacyAcceptedAt); } } catch {}
   try { const ts = await AsyncStorage.getItem('last_remote_wipe_ts'); if(ts) setLastRemoteWipe(Number(ts)); } catch {}
   })(); },[]);
+
+  // Load encryption status
+  useEffect(()=>{ (async()=>{ try { const st = await getEncryptionStatus(); setEncStatus(st); } catch {} })(); },[]);
 
   // Listen for remote wipe events to refresh timestamp
   useEffect(()=>{
@@ -323,6 +338,13 @@ export default function SettingsScreen() {
       ].concat(lastRemoteWipe ? [{ key:'lastWipe', type:'note', text:`Last Remote Wipe: ${new Date(lastRemoteWipe).toLocaleString()}` }] : [])
     },
     {
+      title: 'Encryption',
+      data: [
+        { key:'encStatus', type:'note', text:`${encStatus.passphraseProtected? 'Passphrase-protected key' : 'Device key stored in secure storage'} • ${encStatus.algorithm}` },
+        { key:'encManage', type:'expand', label: encExpanded? 'Hide Encryption':'Manage Encryption', onToggle: ()=> setEncExpanded(p=>!p), expanded: encExpanded, content:'encryption' }
+      ]
+    },
+    {
       title: 'Data Management',
       data: [
         { key:'export', type:'action', label: exporting? 'Exporting...' : 'Export Data', disabled: exporting, onPress: ()=>{ if(exporting) return; Alert.alert('Export Format','Choose a format to export your mood entries.',[ { text:'JSON', onPress:()=>doExport('json') }, { text:'CSV', onPress:()=>doExport('csv') }, { text:'Markdown', onPress:()=>doExport('md') }, { text:'Cancel', style:'cancel' } ]);} },
@@ -466,6 +488,61 @@ export default function SettingsScreen() {
                   </TouchableOpacity>
                 </View>
                 <PrimaryButton accessibilityLabel='Test import key escrow JSON' title={importing? 'Importing...' : 'Test Import'} onPress={handleImportEscrow} disabled={importing} fullWidth />
+            </View>
+          )}
+          {item.expanded && item.content === 'encryption' && (
+            <View style={styles.boxInner}>
+              {!encStatus.passphraseProtected ? (
+                <>
+                  <Text style={styles.subLabel}>Enable Passphrase Protection</Text>
+                  <View style={styles.passwordRow}>
+                    <Input value={encPass} onChangeText={setEncPass} placeholder='Passphrase (min 6 chars)' secureTextEntry={!showEncPass} style={{ paddingRight:44 }} />
+                    <TouchableOpacity accessibilityLabel={(showEncPass? 'Hide':'Show')+ ' passphrase'} onPress={()=>setShowEncPass(p=>!p)} style={styles.visToggle}>
+                      <Text style={styles.visIcon}>{showEncPass? '🙈' : '👁️'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.passwordRow}>
+                    <Input value={encPass2} onChangeText={setEncPass2} placeholder='Confirm passphrase' secureTextEntry={!showEncPass2} style={{ paddingRight:44 }} />
+                    <TouchableOpacity accessibilityLabel={(showEncPass2? 'Hide':'Show')+ ' confirm passphrase'} onPress={()=>setShowEncPass2(p=>!p)} style={styles.visToggle}>
+                      <Text style={styles.visIcon}>{showEncPass2? '🙈' : '👁️'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <PrimaryButton title={busyEnc? 'Enabling...' : 'Enable Passphrase Protection'} disabled={busyEnc} onPress={async()=>{
+                    if(busyEnc) return; if(!encPass || encPass!==encPass2){ Alert.alert('Encryption','Enter matching passphrases.'); return; }
+                    if(encPass.length < 6){ Alert.alert('Encryption','Passphrase must be at least 6 characters.'); return; }
+                    try { setBusyEnc(true); await enablePassphraseProtection(encPass); setEncPass(''); setEncPass2(''); const st = await getEncryptionStatus(); setEncStatus(st); Alert.alert('Encryption','Passphrase protection enabled. Keep your passphrase safe.'); } catch(e){ Alert.alert('Enable Failed', e.message); } finally { setBusyEnc(false); }
+                  }} fullWidth />
+                </>
+              ) : (
+                <>
+                  <Text style={styles.subLabel}>Unlock for This Session</Text>
+                  <View style={styles.passwordRow}>
+                    <Input value={unlockPass} onChangeText={setUnlockPass} placeholder='Passphrase' secureTextEntry={!showUnlockPass} style={{ paddingRight:44 }} />
+                    <TouchableOpacity accessibilityLabel={(showUnlockPass? 'Hide':'Show')+ ' unlock passphrase'} onPress={()=>setShowUnlockPass(p=>!p)} style={styles.visToggle}>
+                      <Text style={styles.visIcon}>{showUnlockPass? '🙈' : '👁️'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <PrimaryButton title={busyEnc? 'Unlocking...' : 'Unlock'} disabled={busyEnc} onPress={async()=>{
+                    if(busyEnc) return; if(!unlockPass){ Alert.alert('Encryption','Enter your passphrase.'); return; }
+                    try { setBusyEnc(true); await unlockWithPassphrase(unlockPass); setUnlockPass(''); Alert.alert('Unlocked','Encryption key unlocked for this session.'); } catch(e){ Alert.alert('Unlock Failed', e.message); } finally { setBusyEnc(false); }
+                  }} fullWidth variant='secondary' />
+                  <View style={{ height:8 }} />
+                  <PrimaryButton title={busyEnc? 'Disabling...' : 'Disable Passphrase Protection'} disabled={busyEnc} onPress={async()=>{
+                    if(busyEnc) return; try { setBusyEnc(true); await disablePassphraseProtection(); const st = await getEncryptionStatus(); setEncStatus(st); Alert.alert('Encryption','Passphrase protection disabled.'); } catch(e){ Alert.alert('Disable Failed', e.message); } finally { setBusyEnc(false); }
+                  }} fullWidth variant='danger' />
+                  <View style={{ height:8 }} />
+                  <PrimaryButton title='Lock Now' onPress={()=>{ try { lockEncryptionKey(); Alert.alert('Locked','Key cleared from memory.'); } catch{} }} fullWidth variant='secondary' />
+                </>
+              )}
+              <View style={{ height:16 }} />
+              <Text style={styles.subLabel}>Legacy Migration</Text>
+              {migrateResult && (
+                <Text style={styles.noteText}>{`Total:${migrateResult.total} Legacy:${migrateResult.legacyFound} Migrated:${migrateResult.migrated} Failed:${migrateResult.failed} ${migrateResult.dryRun? '(dry run)':''}`}</Text>
+              )}
+              <View style={{ height:8 }} />
+              <PrimaryButton title='Dry Run: Detect Legacy' variant='secondary' onPress={async()=>{ try { const res = await migrateLegacyToV2({ dryRun:true }); setMigrateResult(res); Alert.alert('Dry Run Complete', `Found ${res.legacyFound} legacy entries.`); } catch(e){ Alert.alert('Migration Error', e.message); } }} fullWidth />
+              <View style={{ height:8 }} />
+              <PrimaryButton title='Run Migration' onPress={async()=>{ try { const res = await migrateLegacyToV2({ dryRun:false }); setMigrateResult(res); Alert.alert('Migration Complete', `Migrated ${res.migrated} entries (${res.failed} failed).`); } catch(e){ Alert.alert('Migration Error', e.message); } }} fullWidth />
             </View>
           )}
         </View>
