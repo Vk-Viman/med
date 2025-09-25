@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, Alert, Switch, TouchableOpacity, Share, DeviceEventEmitter, SectionList, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -6,7 +6,8 @@ import { useRouter } from "expo-router";
 import PrimaryButton from "../src/components/PrimaryButton";
 import { auth } from "../firebase/firebaseConfig";
 import { signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword, deleteUser, sendEmailVerification } from "firebase/auth";
-import { colors, spacing, radius, shadow } from "../src/theme";
+import { spacing, radius, shadow } from "../src/theme";
+import { useTheme } from "../src/theme/ThemeProvider";
 import { exportAllMoodEntries, buildMoodCSV, buildMoodMarkdown, getLocalOnlyMode, setLocalOnlyMode, deleteAllMoodEntries, escrowEncryptDeviceKey, escrowDecryptDeviceKey } from "../src/services/moodEntries";
 import { getUserProfile, updateUserProfile, ensureUserProfile, deleteUserProfile } from '../src/services/userProfile';
 import { bumpSessionEpoch } from '../src/services/userProfile';
@@ -20,6 +21,8 @@ const DEFAULT_INTERVAL = 0; // 0 = disabled
 const INTERVAL_OPTIONS = [0, 30, 60, 300, 600]; // seconds
 
 export default function SettingsScreen() {
+  const { theme, mode, setThemeMode } = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const router = useRouter();
   const [exporting, setExporting] = useState(false);
   const [localOnly, setLocalOnly] = useState(false);
@@ -53,6 +56,9 @@ export default function SettingsScreen() {
   const [importPassphrase, setImportPassphrase] = useState('');
   const [importData, setImportData] = useState(''); // JSON blob pasted
   const [importing, setImporting] = useState(false);
+  const [showPassphrase, setShowPassphrase] = useState(false);
+  const [showConfirmPassphrase, setShowConfirmPassphrase] = useState(false);
+  const [showImportPassphrase, setShowImportPassphrase] = useState(false);
 
   // ===== Key Escrow Handlers =====
   const handleCreateEscrow = async () => {
@@ -102,7 +108,7 @@ export default function SettingsScreen() {
     try{ const v = await AsyncStorage.getItem(AUTO_LOCK_KEY); if(v) setAutoLock(Number(v)); }catch{}
     try{ const b = await AsyncStorage.getItem(BIOMETRIC_PREF_KEY); if(b!==null) setBiometricPref(b==='1'); }catch{}
     // Load profile
-  try { await ensureUserProfile(); const prof = await getUserProfile(); if(prof){ setDisplayName(prof.displayName || ''); if(typeof prof.biometricEnabled === 'boolean') setBiometricPref(prof.biometricEnabled); if(prof.avatarB64) setAvatarB64(prof.avatarB64); if(prof.themeMode==='dark'||prof.themeMode==='light'){ setThemeModeLocal(prof.themeMode); RNEmitter.emit('theme-mode-sync', { mode: prof.themeMode }); } if(typeof prof.analyticsOptOut === 'boolean') setAnalyticsOptOut(prof.analyticsOptOut); if('termsAcceptedVersion' in prof) setTermsAcceptedVersion(prof.termsAcceptedVersion); if('privacyAcceptedAt' in prof) setPrivacyAcceptedAt(prof.privacyAcceptedAt); } } catch {}
+  try { await ensureUserProfile(); const prof = await getUserProfile(); if(prof){ setDisplayName(prof.displayName || ''); if(typeof prof.biometricEnabled === 'boolean') setBiometricPref(prof.biometricEnabled); if(prof.avatarB64) setAvatarB64(prof.avatarB64); if(prof.themeMode==='dark'||prof.themeMode==='light'){ setThemeModeLocal(prof.themeMode); try { await setThemeMode(prof.themeMode); } catch {} } if(typeof prof.analyticsOptOut === 'boolean') setAnalyticsOptOut(prof.analyticsOptOut); if('termsAcceptedVersion' in prof) setTermsAcceptedVersion(prof.termsAcceptedVersion); if('privacyAcceptedAt' in prof) setPrivacyAcceptedAt(prof.privacyAcceptedAt); } } catch {}
   try { const ts = await AsyncStorage.getItem('last_remote_wipe_ts'); if(ts) setLastRemoteWipe(Number(ts)); } catch {}
   })(); },[]);
 
@@ -311,7 +317,7 @@ export default function SettingsScreen() {
       data: [
         { key:'localOnly', type:'toggle', label:'Local-Only Mode', value: localOnly, onValueChange: toggleLocalOnly },
         { key:'biometric', type:'toggle', label:'Biometric Unlock', value: biometricPref, onValueChange: toggleBiometric },
-        { key:'darkMode', type:'toggle', label:'Dark Mode', value: themeMode==='dark', onValueChange: async(val)=>{ const next = val? 'dark':'light'; setThemeModeLocal(next); RNEmitter.emit('theme-mode-sync', { mode: next }); try { await updateUserProfile({ themeMode: next }); } catch {} } },
+  { key:'darkMode', type:'toggle', label:'Dark Mode', value: mode==='dark', onValueChange: async(val)=>{ const next = val? 'dark':'light'; setThemeModeLocal(next); try { await setThemeMode(next); } catch {} try { await updateUserProfile({ themeMode: next }); } catch {} } },
         { key:'analyticsOptOut', type:'toggle', label:'Analytics Opt-Out', value: analyticsOptOut, onValueChange: async(val)=>{ setAnalyticsOptOut(val); try { await updateUserProfile({ analyticsOptOut: val }); } catch {} } },
         { key:'autoLock', type:'choices', label:'Auto-Lock', value:autoLock }
       ].concat(lastRemoteWipe ? [{ key:'lastWipe', type:'note', text:`Last Remote Wipe: ${new Date(lastRemoteWipe).toLocaleString()}` }] : [])
@@ -435,15 +441,30 @@ export default function SettingsScreen() {
           {item.expanded && item.content === 'escrow' && (
             <View style={styles.boxInner}>
               <Text style={styles.subLabel}>Create / Update Escrow</Text>
-              <Input value={passphrase} onChangeText={setPassphrase} placeholder='New passphrase' secureTextEntry />
-                <Input value={confirmPassphrase} onChangeText={setConfirmPassphrase} placeholder='Confirm passphrase' secureTextEntry />
+              <View style={styles.passwordRow}>
+                <Input value={passphrase} onChangeText={setPassphrase} placeholder='New passphrase' secureTextEntry={!showPassphrase} style={{ paddingRight:44 }} />
+                <TouchableOpacity accessibilityLabel={(showPassphrase? 'Hide':'Show')+ ' passphrase'} onPress={()=>setShowPassphrase(p=>!p)} style={styles.visToggle}>
+                  <Text style={styles.visIcon}>{showPassphrase? '🙈' : '👁️'}</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.passwordRow}>
+                <Input value={confirmPassphrase} onChangeText={setConfirmPassphrase} placeholder='Confirm passphrase' secureTextEntry={!showConfirmPassphrase} style={{ paddingRight:44 }} />
+                <TouchableOpacity accessibilityLabel={(showConfirmPassphrase? 'Hide':'Show')+ ' confirm passphrase'} onPress={()=>setShowConfirmPassphrase(p=>!p)} style={styles.visToggle}>
+                  <Text style={styles.visIcon}>{showConfirmPassphrase? '🙈' : '👁️'}</Text>
+                </TouchableOpacity>
+              </View>
                 <PrimaryButton accessibilityLabel='Store key escrow passphrase' title={escrowing? 'Saving...' : 'Store Escrow'} onPress={handleCreateEscrow} disabled={escrowing} fullWidth />
                 <View style={{ height:8 }} />
                 <PrimaryButton accessibilityLabel='Export key escrow JSON' title='Export Escrow JSON' variant='secondary' onPress={handleExportEscrow} fullWidth />
                 <View style={{ height:16 }} />
                 <Text style={styles.subLabel}>Import Escrow</Text>
                 <Input value={importData} onChangeText={setImportData} placeholder='Paste escrow JSON here' multiline style={{ height:100, textAlignVertical:'top' }} />
-                <Input value={importPassphrase} onChangeText={setImportPassphrase} placeholder='Passphrase' secureTextEntry />
+                <View style={styles.passwordRow}>
+                  <Input value={importPassphrase} onChangeText={setImportPassphrase} placeholder='Passphrase' secureTextEntry={!showImportPassphrase} style={{ paddingRight:44 }} />
+                  <TouchableOpacity accessibilityLabel={(showImportPassphrase? 'Hide':'Show')+ ' import passphrase'} onPress={()=>setShowImportPassphrase(p=>!p)} style={styles.visToggle}>
+                    <Text style={styles.visIcon}>{showImportPassphrase? '🙈' : '👁️'}</Text>
+                  </TouchableOpacity>
+                </View>
                 <PrimaryButton accessibilityLabel='Test import key escrow JSON' title={importing? 'Importing...' : 'Test Import'} onPress={handleImportEscrow} disabled={importing} fullWidth />
             </View>
           )}
@@ -473,7 +494,7 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors) => StyleSheet.create({
   container: { flex:1, backgroundColor: colors.bg },
   scrollContent:{ padding: spacing.lg, paddingBottom: spacing.lg },
   listContent:{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg },
@@ -483,26 +504,29 @@ const styles = StyleSheet.create({
   itemRow:{ backgroundColor: colors.card, borderRadius: radius.md, padding: spacing.md, ...shadow.card },
   itemSeparator:{ height: spacing.xs },
   sectionHeading:{ fontSize:16, fontWeight:'700', color: colors.text, marginBottom: spacing.sm },
-  subLabel:{ fontSize:12, fontWeight:'600', color:'#456', marginBottom:4 },
+  subLabel:{ fontSize:12, fontWeight:'600', color: colors.textMuted, marginBottom:4 },
   boxInner:{ marginTop: spacing.sm },
-  noteText:{ fontSize:12, color:'#607D8B', marginTop:4 },
+  noteText:{ fontSize:12, color: colors.textMuted, marginTop:4 },
   rowBetween:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginTop: spacing.xs },
   rowBetweenMul:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginTop: spacing.sm },
   label:{ fontSize:14, fontWeight:'600', color: colors.text },
   inlineOptions:{ flexDirection:'row', flexWrap:'wrap', justifyContent:'flex-end', maxWidth:'60%' },
-  intervalChip:{ paddingHorizontal:10, paddingVertical:6, borderRadius:20, backgroundColor:'#eef2f5', marginLeft:6, marginTop:4 },
+  intervalChip:{ paddingHorizontal:10, paddingVertical:6, borderRadius:20, backgroundColor: colors.bg === '#0B1722' ? '#182635' : '#eef2f5', marginLeft:6, marginTop:4 },
   intervalChipActive:{ backgroundColor: colors.primary },
   intervalChipText:{ fontSize:12, fontWeight:'600', color: colors.text },
-  intervalChipTextActive:{ color:'#fff' },
-  avatar:{ width:72, height:72, borderRadius:36, backgroundColor:'#90CAF9', borderWidth:2, borderColor:'#fff' },
+  intervalChipTextActive:{ color: colors.primaryContrast },
+  avatar:{ width:72, height:72, borderRadius:36, backgroundColor:'#90CAF9', borderWidth:2, borderColor: colors.card },
   avatarPlaceholder:{ alignItems:'center', justifyContent:'center' },
-  avatarPlaceholderTxt:{ fontSize:28, fontWeight:'700', color:'#fff' },
+  avatarPlaceholderTxt:{ fontSize:28, fontWeight:'700', color: colors.primaryContrast },
   avatarRow:{ flexDirection:'row', alignItems:'center', marginBottom: spacing.sm },
   pwMeterWrapper:{ marginBottom: spacing.sm },
   pwBarRow:{ flexDirection:'row', height:8, marginTop:4, marginBottom:6 },
-  pwSeg:{ flex:1, marginRight:4, backgroundColor:'#ECEFF1', borderRadius:4 },
+  pwSeg:{ flex:1, marginRight:4, backgroundColor: colors.bg === '#0B1722' ? '#1f3347' : '#ECEFF1', borderRadius:4 },
   pwFeedback:{ fontSize:11, fontWeight:'600', color:'#388E3C' },
-  _pwColors:['#D32F2F','#F57C00','#FBC02D','#7CB342','#2E7D32']
+  _pwColors:['#D32F2F','#F57C00','#FBC02D','#7CB342','#2E7D32'],
+  passwordRow:{ position:'relative', marginBottom:8 },
+  visToggle:{ position:'absolute', right:10, top:10, padding:4 },
+  visIcon:{ fontSize:18, color: colors.textMuted }
 });
 
 // Simple inline Input component to avoid extra imports

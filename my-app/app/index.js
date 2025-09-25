@@ -79,12 +79,22 @@ export default function HomeScreen() {
     return '😄';
   };
   const moodTint = (m) => {
+    // Light mode soft pastels
     if(m == null) return '#E3F2FD';
     if(m <= 2) return '#FFEBEE';
     if(m <= 4) return '#FFF3E0';
     if(m <= 6) return '#EDEFF1';
     if(m <= 8) return '#E8F5E9';
     return '#E3F2FD';
+  };
+  const moodTintDark = (m) => {
+    // Dark mode, deeper tints for contrast
+    if(m == null) return '#0F2132';       // blue-ish
+    if(m <= 2) return '#2A1A1A';          // red-ish
+    if(m <= 4) return '#2A2316';          // orange-ish
+    if(m <= 6) return '#1E2328';          // neutral
+    if(m <= 8) return '#18271C';          // green-ish
+    return '#0F2132';
   };
   const latestMoodLabel = () => {
     if(!summary.latest) return 'Log your first mood to start tracking';
@@ -157,7 +167,7 @@ export default function HomeScreen() {
         </View>
 
         <Text style={[styles.sectionLabel,{ color: theme.textMuted }]}>TODAY</Text>
-        <Card style={[styles.snapshotCard, { backgroundColor: moodTint(summary.latest?.mood) }]}> 
+  <Card style={[styles.snapshotCard, { backgroundColor: (mode === 'dark' ? moodTintDark(summary.latest?.mood) : moodTint(summary.latest?.mood)) }]}> 
           {loading ? (
             <View style={styles.loadingRow}><ActivityIndicator color={theme.primary} size="small" /><Text style={[styles.loadingTxt,{ color: theme.textMuted }]}> Loading summary...</Text></View>
           ) : (
@@ -167,9 +177,9 @@ export default function HomeScreen() {
                   <Text style={styles.emptyEmoji}>📝</Text>
                   <Text style={[styles.emptyTitle,{ color: theme.text }]}>No moods yet</Text>
                   <Text style={[styles.emptyDesc,{ color: theme.textMuted }]}>Track how you feel to see patterns and build a streak.</Text>
-                  <TouchableOpacity style={styles.linkBtnLarge} onPress={()=> navigate('/moodTracker','medium')} accessibilityRole='button' accessibilityLabel='Log first mood'>
-                    <Ionicons name='add-circle-outline' size={18} color='#0277BD' />
-                    <Text style={styles.linkBtnLargeTxt}>Log Mood</Text>
+                  <TouchableOpacity style={[styles.linkBtnLarge, { backgroundColor: theme.bg === '#0B1722' ? '#1b2b3b' : '#E3F2FD' }]} onPress={()=> navigate('/moodTracker','medium')} accessibilityRole='button' accessibilityLabel='Log first mood'>
+                    <Ionicons name='add-circle-outline' size={18} color={mode==='dark' ? '#8EC7FF' : theme.primary} />
+                    <Text style={[styles.linkBtnLargeTxt,{ color: mode==='dark' ? '#E3F2FD' : '#0277BD' }]}>Log Mood</Text>
                   </TouchableOpacity>
                 </View>
               ) : (
@@ -180,8 +190,8 @@ export default function HomeScreen() {
                       <Text style={[styles.snapshotTextMain,{ color: theme.text }]}>{latestMoodLabel()}</Text>
                       <Text style={[styles.snapshotSub,{ color: theme.textMuted }]}>Keep consistent logging for better insights</Text>
                     </View>
-                    <TouchableOpacity style={styles.linkBtn} onPress={()=> navigate('/moodTracker','medium')} accessibilityLabel="Log another mood entry">
-                      <Text style={styles.linkBtnTxt}>Log</Text>
+                    <TouchableOpacity style={[styles.linkBtn,{ backgroundColor: theme.bg === '#0B1722' ? '#1b2b3b' : '#E3F2FD' }]} onPress={()=> navigate('/moodTracker','medium')} accessibilityLabel="Log another mood entry">
+                      <Text style={[styles.linkBtnTxt,{ color: mode==='dark' ? '#E3F2FD' : '#0277BD' }]} >Log</Text>
                     </TouchableOpacity>
                   </View>
                   <View style={styles.snapshotRow}>

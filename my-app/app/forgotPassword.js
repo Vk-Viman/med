@@ -4,11 +4,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth } from '../firebase/firebaseConfig';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import PrimaryButton from '../src/components/PrimaryButton';
-import { colors, spacing } from '../src/theme';
+import { spacing } from '../src/theme';
+import { useTheme } from '../src/theme/ThemeProvider';
 import { useRouter } from 'expo-router';
 import { TextInput } from 'react-native';
 
 export default function ForgotPasswordScreen(){
+  const { theme } = useTheme();
   const router = useRouter();
   const [email,setEmail] = useState('');
   const [sending,setSending] = useState(false);
@@ -21,11 +23,11 @@ export default function ForgotPasswordScreen(){
   };
 
   return (
-    <SafeAreaView style={{ flex:1, backgroundColor: colors.bg, padding: spacing.lg }}>
-      <Text style={{ fontSize:26, fontWeight:'800', color: colors.text, marginBottom: spacing.md }}>Forgot Password</Text>
-      <Text style={{ fontSize:14, color: colors.text, opacity:0.8, marginBottom: spacing.md }}>Enter your account email to receive a password reset link.</Text>
-      <Text style={{ fontSize:12, fontWeight:'600', color: colors.text, marginBottom:4 }}>Email</Text>
-      <TextInput autoCapitalize='none' keyboardType='email-address' value={email} onChangeText={setEmail} placeholder='you@example.com' style={{ width:'100%', borderWidth:1, borderColor:'#90CAF9', borderRadius:12, paddingHorizontal:12, height:48, backgroundColor:'#ffffffCC', marginBottom: spacing.lg }} />
+    <SafeAreaView style={{ flex:1, backgroundColor: theme.bg, padding: spacing.lg }}>
+      <Text style={{ fontSize:26, fontWeight:'800', color: theme.text, marginBottom: spacing.md }}>Forgot Password</Text>
+      <Text style={{ fontSize:14, color: theme.text, opacity:0.8, marginBottom: spacing.md }}>Enter your account email to receive a password reset link.</Text>
+      <Text style={{ fontSize:12, fontWeight:'600', color: theme.text, marginBottom:4 }}>Email</Text>
+      <TextInput autoCapitalize='none' keyboardType='email-address' value={email} onChangeText={setEmail} placeholder='you@example.com' placeholderTextColor={theme.textMuted} style={{ width:'100%', borderWidth:1, borderColor: theme.bg === '#0B1722' ? '#345' : '#90CAF9', borderRadius:12, paddingHorizontal:12, height:48, backgroundColor: theme.bg === '#0B1722' ? '#0F1E2C' : '#ffffffCC', marginBottom: spacing.lg, color: theme.text }} />
       <PrimaryButton title={sending? 'Sending...' : 'Send Reset Email'} onPress={submit} disabled={sending} fullWidth />
       <View style={{ height: spacing.lg }} />
       <PrimaryButton title='Back to Login' variant='secondary' onPress={()=> router.replace('/login')} fullWidth />

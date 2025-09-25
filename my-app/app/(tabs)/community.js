@@ -1,12 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, FlatList, TextInput, Button, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { db, auth } from "../../firebase/firebaseConfig";
 import { collection, doc, addDoc, getDoc, getDocs, setDoc, query, where, orderBy, serverTimestamp, updateDoc, increment } from "firebase/firestore";
 import { ensurePostIsSafe } from "../../src/moderation";
 import { updateUserStats, evaluateAndAwardBadges, awardFirstPostIfNeeded } from "../../src/badges";
+import { useTheme } from "../../src/theme/ThemeProvider";
 
 export default function CommunityScreen() {
+  const { theme } = useTheme();
+  const styles = useMemo(()=>createStyles(theme), [theme]);
   const [challenges, setChallenges] = useState([]);
   const [badges, setBadges] = useState([]);
   const [posts, setPosts] = useState([]);
@@ -143,7 +146,7 @@ export default function CommunityScreen() {
         keyExtractor={(item) => item.id}
         horizontal
         renderItem={({ item }) => (
-          <View style={styles.badge}><Text>🏅 {item.name}</Text></View>
+          <View style={styles.badge}><Text style={{ color: theme.text }}>🏅 {item.name}</Text></View>
         )}
       />
 
@@ -153,13 +156,13 @@ export default function CommunityScreen() {
         keyExtractor={(item) => item.uid}
         horizontal
         renderItem={({ item, index }) => (
-          <View style={styles.badge}><Text>{index+1}. {item.uid.slice(0,6)} • {item.minutes}m</Text></View>
+          <View style={styles.badge}><Text style={{ color: theme.text }}>{index+1}. {item.uid.slice(0,6)} • {item.minutes}m</Text></View>
         )}
       />
 
       <Text style={styles.section}>Anonymous Board</Text>
       <View style={styles.postRow}>
-        <TextInput style={styles.input} value={message} onChangeText={setMessage} placeholder="Share your thoughts anonymously..." />
+        <TextInput style={styles.input} value={message} onChangeText={setMessage} placeholder="Share your thoughts anonymously..." placeholderTextColor={theme.textMuted} />
         <Button title="Post" onPress={submitPost} />
       </View>
       <FlatList
@@ -168,24 +171,23 @@ export default function CommunityScreen() {
         renderItem={({ item }) => (
           <View style={styles.post}>
             <Text style={styles.anon}>{item.anonId || "anon"}</Text>
-            <Text>{item.text}</Text>
+            <Text style={{ color: theme.text }}>{item.text}</Text>
           </View>
         )}
       />
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
-  title: { fontSize: 24, fontWeight: "800", marginBottom: 8 },
-  section: { marginTop: 12, fontWeight: "700" },
-  card: { padding: 12, backgroundColor: "#fff", borderRadius: 12, marginRight: 10, width: 220 },
-  cardTitle: { fontWeight: "700", marginBottom: 4 },
-  cardText: { color: "#555", marginBottom: 8 },
-  badge: { padding: 10, backgroundColor: "#E3F2FD", borderRadius: 20, marginRight: 8 },
+const createStyles = (colors) => StyleSheet.create({
+  container: { flex: 1, padding: 16, backgroundColor: colors.bg },
+  title: { fontSize: 24, fontWeight: "800", marginBottom: 8, color: colors.text },
+  section: { marginTop: 12, fontWeight: "700", color: colors.textMuted },
+  card: { padding: 12, backgroundColor: colors.card, borderRadius: 12, marginRight: 10, width: 220 },
+  cardTitle: { fontWeight: "700", marginBottom: 4, color: colors.text },
+  cardText: { color: colors.textMuted, marginBottom: 8 },
+  badge: { padding: 10, backgroundColor: colors.bg === '#0B1722' ? '#1b2b3b' : '#E3F2FD', borderRadius: 20, marginRight: 8 },
   postRow: { flexDirection: "row", alignItems: "center", marginVertical: 8 },
-  input: { flex: 1, borderWidth: 1, borderColor: "#ddd", borderRadius: 8, padding: 8, marginRight: 8 },
-  post: { backgroundColor: "#fff", padding: 10, borderRadius: 10, marginVertical: 6 },
-  anon: { color: "#888", fontSize: 12, marginBottom: 4 }
+  input: { flex: 1, borderWidth: 1, borderColor: colors.bg === '#0B1722' ? '#345' : '#ddd', borderRadius: 8, padding: 8, marginRight: 8, color: colors.text, backgroundColor: colors.bg === '#0B1722' ? '#0F1E2C' : '#ffffff' },
+  post: { backgroundColor: colors.card, padding: 10, borderRadius: 10, marginVertical: 6 },
+  anon: { color: colors.textMuted, fontSize: 12, marginBottom: 4 }
 });
