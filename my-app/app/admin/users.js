@@ -22,6 +22,9 @@ export default function AdminUsers(){
           <Text style={[styles.name, { color: theme.text }]}>{item.displayName || '—'}</Text>
           <Text style={{ color: theme.textMuted, fontSize:12 }}>{item.email}</Text>
           <Text style={{ color: item.userType==='admin'? '#2E7D32':'#555', fontWeight:'700', marginTop:4 }}>{item.userType || 'user'}</Text>
+          <View style={{ height:6 }} />
+          {item.lastActivity && <Text style={{ color: theme.textMuted, fontSize:12 }}>Last activity: {formatDate(item.lastActivity)}</Text>}
+          {typeof item.entriesCount === 'number' && <Text style={{ color: theme.textMuted, fontSize:12 }}>Entries: {item.entriesCount}</Text>}
         </TouchableOpacity>
       )} contentContainerStyle={{ padding:12, gap:10 }} />
     </View>
@@ -32,3 +35,17 @@ const styles = StyleSheet.create({
   row:{ padding:12, borderRadius:12 },
   name:{ fontSize:14, fontWeight:'700' }
 });
+
+function formatDate(ts){
+  try {
+    if(!ts) return '';
+    // Firestore Timestamp or JS Date
+    let d;
+    if(ts && typeof ts.toDate === 'function'){ d = ts.toDate(); }
+    else if(ts instanceof Date){ d = ts; }
+    else if(typeof ts === 'number'){ d = new Date(ts); }
+    else return '';
+    const pad = n=> String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  } catch { return ''; }
+}

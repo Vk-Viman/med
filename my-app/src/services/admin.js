@@ -1,10 +1,28 @@
-import { db } from '../../firebase/firebaseConfig';
-import { collection, doc, getDoc, getDocs, query, orderBy, where, limit as qlimit, updateDoc, setDoc, addDoc, deleteDoc } from 'firebase/firestore';
+import { auth, db, storage } from '../../firebase/firebaseConfig';
+import { collection, doc, getDoc, getDocs, query, orderBy, where, limit as qlimit, updateDoc, setDoc, addDoc, deleteDoc, getCountFromServer } from 'firebase/firestore';
+import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 
 // USERS
 export async function listUsers({ limit=100 } = {}){
   const snap = await getDocs(query(collection(db, 'users'), orderBy('createdAt','desc'), qlimit(limit)));
   const out = []; snap.forEach(d=> out.push({ id:d.id, ...d.data() }));
+  // Attach mood counts and last activity (best-effort)
+  try {
+    await Promise.all(out.map(async u => {
+      try {
+        const moodsRef = collection(db, `users/${u.id}/moods`);
+        const moodsSnap = await getDocs(query(moodsRef, orderBy('createdAt','desc'), qlimit(1)));
+        let last = null; moodsSnap.forEach(d => { const data = d.data()||{}; last = data.createdAt || null; });
+        // Count: quick estimate via fetching limited snapshots repeatedly is expensive; instead, store cached count in user doc if available
+        u.lastActivity = last;
+        // Use aggregation query to get count if supported
+        try {
+          const agg = await getCountFromServer(moodsRef);
+          u.entriesCount = agg?.data().count || undefined;
+        } catch {}
+      } catch {}
+    }));
+  } catch {}
   return out;
 }
 export async function listUsersCount(){
@@ -124,7 +142,8 @@ export async function deleteAllUserMoods(uid, { batchSize=200 } = {}){
 // shape suggestion: { id, uid, type: 'export'|'delete', status: 'open'|'done', createdAt, completedAt, actorUid }
 export async function listPrivacyRequests({ status='open', limit=100 } = {}){
   const ref = collection(db, 'privacy_requests');
-  const q = status ? query(ref, where('status','==', status), orderBy('createdAt','desc'), qlimit(limit)) : query(ref, orderBy('createdAt','desc'), qlimit(limit));
+  // Avoid composite index requirement by not mixing where+orderBy initially
+  const q = status ? query(ref, where('status','==', status), qlimit(limit)) : query(ref, qlimit(limit));
   const snap = await getDocs(q);
   const rows = []; snap.forEach(d=> rows.push({ id:d.id, ...d.data() }));
   return rows;
@@ -134,4 +153,27 @@ export async function markPrivacyRequestDone(id){
 }
 export async function createPrivacyRequest({ uid, type }){
   await addDoc(collection(db, 'privacy_requests'), { uid, type, status:'open', createdAt: new Date() });
+}
+
+// ADMIN: generate export artifact, upload JSON to Storage, and patch privacy_request
+export async function adminGenerateExportArtifact(uid, requestId){
+  const rows = await listUserMoodDocs(uid, { limit: 5000 });
+  const payload = { exportedAt: new Date().toISOString(), uid, count: rows.length, entries: rows };
+  const json = JSON.stringify(payload, null, 2);
+  const ts = Date.now();
+  const path = `privacy_exports/${uid}/export_${ts}.json`;
+  const r = ref(storage, path);
+  await uploadString(r, json, 'raw', { contentType: 'application/json' });
+  const url = await getDownloadURL(r);
+  await updateDoc(doc(db, `privacy_requests/${requestId}`), { status:'done', completedAt: new Date(), fileUrl: url, storagePath: path });
+  await logAdminAction({ action:'export_artifact_generated', targetUid: uid, meta: { requestId, path } });
+  return { url, path };
+}
+
+// ADMIN AUDIT LOGS
+export async function logAdminAction({ action, targetUid, meta }){
+  const actorUid = auth.currentUser?.uid || null;
+  try {
+    await addDoc(collection(db, 'admin_audit_logs'), { action, targetUid: targetUid||null, actorUid, meta: meta||{}, at: new Date() });
+  } catch {}
 }

@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { Stack, useRouter, useNavigation, usePathname } from 'expo-router';
-import { View, ActivityIndicator, Alert, TouchableOpacity, Text, StyleSheet } from 'react-native';
+import { Stack, useRouter, useNavigation } from 'expo-router';
+import { View, ActivityIndicator, Alert, TouchableOpacity, Text, StyleSheet, Platform } from 'react-native';
 import { getUserProfile, isAdminType } from '../../src/services/userProfile';
 import { useTheme } from '../../src/theme/ThemeProvider';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as LocalAuthentication from 'expo-local-authentication';
 
 export default function AdminLayout(){
   const router = useRouter();
   const { theme } = useTheme();
   const [checking, setChecking] = useState(true);
   const nav = useNavigation();
-  const pathname = usePathname();
+  
 
   useEffect(()=>{
     (async()=>{
@@ -20,6 +22,23 @@ export default function AdminLayout(){
           router.replace('/(tabs)');
           return;
         }
+        // Optional biometric gate for admin area if user enabled it
+        try {
+          const pref = await AsyncStorage.getItem('pref_biometric_enabled_v1');
+          const enabled = pref === '1';
+          if(enabled && Platform.OS !== 'web'){
+            const hasHardware = await LocalAuthentication.hasHardwareAsync();
+            const enrolled = await LocalAuthentication.isEnrolledAsync();
+            if(hasHardware && enrolled){
+              const res = await LocalAuthentication.authenticateAsync({ promptMessage: 'Unlock admin' });
+              if(!res.success){
+                Alert.alert('Locked','Biometric authentication canceled.');
+                router.replace('/(tabs)');
+                return;
+              }
+            }
+          }
+        } catch {}
       } catch {}
       setChecking(false);
     })();
@@ -32,10 +51,10 @@ export default function AdminLayout(){
           nav.goBack();
           return;
         }
-        // If at admin root (no history), go to user tabs
-        router.replace('/(tabs)');
+        // If at admin root (no history), stay within admin and go to dashboard
+        router.replace('/admin');
       } catch (e) {
-        try { router.replace('/(tabs)'); } catch {}
+        try { router.replace('/admin'); } catch {}
       }
     };
     return (
@@ -53,10 +72,17 @@ export default function AdminLayout(){
     );
   }
 
+  const HeaderProfileBtn = () => (
+    <TouchableOpacity style={{ paddingHorizontal:12, paddingVertical:6 }} onPress={()=> router.push('/admin/profile')}>
+      <Text style={{ color:'#0288D1', fontWeight:'700' }}>Profile</Text>
+    </TouchableOpacity>
+  );
+
   return (
-    <Stack screenOptions={{ headerLeft: () => <BackBtn /> }}>
-      <Stack.Screen name="index" options={{ title: 'Admin Dashboard' }} />
+    <Stack screenOptions={{ headerLeft: () => <BackBtn />, headerRight: () => <HeaderProfileBtn /> }}>
+      <Stack.Screen name="index" options={{ title: 'Admin Dashboard', headerLeft: () => null }} />
       <Stack.Screen name="settings" options={{ title: 'Admin Settings' }} />
+      <Stack.Screen name="profile" options={{ title: 'Admin Profile' }} />
       <Stack.Screen name="users" options={{ title: 'Users' }} />
       <Stack.Screen name="user/[uid]" options={{ title: 'User Details' }} />
       <Stack.Screen name="meditations" options={{ title: 'Meditations' }} />

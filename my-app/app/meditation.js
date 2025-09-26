@@ -44,8 +44,13 @@ export default function MeditationPlayerScreen() {
         <Text style={styles.todayLabel}>Today's minutes</Text>
         <Text style={styles.todayValue}>{todayMinutes.toFixed(1)}m</Text>
       </View>
+      {selectedMeditation && (
+        <Text style={{ marginBottom: spacing.sm, color: colors.mutedText || '#455A64' }}>
+          Selected: {selectedMeditation?.title || '—'}
+        </Text>
+      )}
       <MeditationList onSelect={setSelectedMeditation} selected={selectedMeditation} />
-      <PlayerControls meditation={selectedMeditation} backgroundSound={backgroundSound} />
+      <PlayerControls meditation={selectedMeditation} backgroundSound={backgroundSound} disabled={!selectedMeditation} accessibilityLabel={selectedMeditation? 'Play selected meditation' : 'Select a meditation to enable playback'} />
       <BackgroundSoundSwitcher value={backgroundSound} onChange={setBackgroundSound} />
         </SafeAreaView>
       </GradientBackground>

@@ -196,6 +196,7 @@ export default function Layout() {
         <Stack.Screen name="report" options={{ title: "Weekly Report", headerLeft: () => <BackBtn /> }} />
         <Stack.Screen name="notifications" options={{ title: "Reminder Settings", headerLeft: () => <BackBtn /> }} />
         <Stack.Screen name="settings" options={{ title: "Settings", headerLeft: () => <BackBtn /> }} />
+  <Stack.Screen name="achievements" options={{ title: "Achievements", headerLeft: () => <BackBtn /> }} />
     <Stack.Screen name="moodTracker" options={{ title: "Mood & Stress Tracker", headerLeft: () => <BackBtn /> }} />
     <Stack.Screen name="wellnessReport" options={{ title: "Wellness Report", headerLeft: () => <BackBtn /> }} />
   <Stack.Screen name="biometricLogin" options={{ title: "Biometric Login", headerLeft: () => <BackBtn /> }} />

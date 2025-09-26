@@ -62,6 +62,20 @@ export default function PlanScreen() {
     loadSaved();
   }, []);
 
+  const formatUpdated = (ts) => {
+    try {
+      if(!ts) return '';
+      let d;
+      if (typeof ts?.toDate === 'function') d = ts.toDate();
+      else if (ts instanceof Date) d = ts;
+      else if (typeof ts === 'number') d = new Date(ts);
+      else if (typeof ts === 'string') d = new Date(ts);
+      else return '';
+      if (isNaN(d.getTime())) return '';
+      return d.toLocaleString();
+    } catch { return ''; }
+  };
+
   const generatePlan = () => {
     if (!stress || !mood || !goal) return null;
     // Simple rules to pick a plan
@@ -108,12 +122,10 @@ export default function PlanScreen() {
         savedPlan ? (
           <View style={styles.savedCard}>
             <Text style={styles.savedTitle}>Your saved plan</Text>
-            <Text style={styles.savedText}>{savedPlan.title} â€¢ {savedPlan.minutes} min</Text>
-            {lastUpdated && (
-              <Text style={styles.updatedText}>
-                Last updated: {new Date(lastUpdated).toLocaleString()}
-              </Text>
-            )}
+            <Text style={styles.savedText}>{savedPlan.title} \u2022 {savedPlan.minutes} min</Text>
+            {formatUpdated(lastUpdated) ? (
+              <Text style={styles.updatedText}>Last updated: {formatUpdated(lastUpdated)}</Text>
+            ) : null}
           </View>
         ) : (
           <Text style={styles.planPlaceholder}>No saved plan yet. Answer below to create one.</Text>
@@ -124,7 +136,7 @@ export default function PlanScreen() {
       <OptionRow label="Goal" options={choices.goal} value={goal} onChange={setGoal} />
 
       {plan ? (
-        <Text style={styles.plan}>Suggested: {plan.title} â€¢ {plan.minutes} min</Text>
+  <Text style={styles.plan}>Suggested: {plan.title} \u2022 {plan.minutes} min</Text>
       ) : (
         <Text style={styles.planPlaceholder}>Answer to see your plan</Text>
       )}

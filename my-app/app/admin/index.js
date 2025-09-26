@@ -40,6 +40,8 @@ export default function AdminHome(){
   <View style={{ height: 8 }} />
   <PrimaryButton title="Privacy Center" onPress={()=> router.push('/admin/privacy')} fullWidth variant='secondary' />
   <View style={{ height: 8 }} />
+  <PrimaryButton title="Admin Profile" onPress={()=> router.push('/admin/profile')} fullWidth variant='secondary' />
+  <View style={{ height: 8 }} />
       <PrimaryButton title="Meditations" onPress={()=> router.push('/admin/meditations')} fullWidth variant='secondary' />
       <View style={{ height: 8 }} />
       <PrimaryButton title="Plans" onPress={()=> router.push('/admin/plans')} fullWidth variant='secondary' />
