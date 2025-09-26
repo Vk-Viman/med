@@ -10,6 +10,7 @@ import { createUserWithEmailAndPassword } from "firebase/auth";
 import { ensureUserProfile, getUserProfile, isAdminType } from "../src/services/userProfile";
 import PrimaryButton from "../src/components/PrimaryButton";
 import { spacing, radius, shadow } from "../src/theme";
+import AppLogo from "../src/components/AppLogo";
 import { useTheme } from "../src/theme/ThemeProvider";
 
 export default function SignupScreen() {
@@ -38,7 +39,8 @@ export default function SignupScreen() {
     <GradientBackground>
       <SafeAreaView style={styles(theme).container}>
         <View style={styles(theme).card}>
-        <Text style={styles(theme).title}>Create account</Text>
+  <AppLogo size={56} style={{ alignSelf:'center', marginBottom: spacing.sm }} />
+  <Text style={styles(theme).title}>Create account</Text>
         <View style={styles(theme).inputWrap}>
           <Ionicons name="mail-outline" size={18} color="#5C6BC0" style={styles.inputIcon} />
           <TextInput style={styles(theme).input} placeholder="Email" placeholderTextColor={theme.textMuted} value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />

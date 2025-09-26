@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import MeditationList from "../src/components/MeditationList";
 import PlayerControls from "../src/components/PlayerControls";
@@ -8,11 +8,15 @@ import { colors, spacing } from "../src/theme";
 import GradientBackground from "../src/components/GradientBackground";
 import { auth, db } from "../firebase/firebaseConfig";
 import { collection, onSnapshot, query, where, Timestamp } from "firebase/firestore";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function MeditationPlayerScreen() {
   const [selectedMeditation, setSelectedMeditation] = useState(null);
   const [backgroundSound, setBackgroundSound] = useState("none");
   const [todayMinutes, setTodayMinutes] = useState(0);
+  const uid = auth.currentUser?.uid || "local";
+  const lastMedKey = `@med:lastSelection:${uid}`;
+  const lastBgKey = `@med:lastBg:${uid}`;
 
   // Subscribe to today's total minutes so users see immediate progress
   useEffect(() => {
@@ -36,22 +40,54 @@ export default function MeditationPlayerScreen() {
     return () => unsub();
   }, []);
 
+  // Restore last selection and background sound
+  useEffect(() => {
+    (async () => {
+      try {
+        const [rawMed, rawBg] = await Promise.all([
+          AsyncStorage.getItem(lastMedKey),
+          AsyncStorage.getItem(lastBgKey),
+        ]);
+        if (rawMed) {
+          const parsed = JSON.parse(rawMed);
+          setSelectedMeditation(parsed);
+        }
+        if (rawBg) setBackgroundSound(rawBg);
+      } catch {}
+    })();
+  }, [lastMedKey, lastBgKey]);
+
+  // Persist changes
+  useEffect(() => {
+    if (selectedMeditation) {
+      AsyncStorage.setItem(lastMedKey, JSON.stringify(selectedMeditation)).catch(() => {});
+    }
+  }, [selectedMeditation, lastMedKey]);
+
+  useEffect(() => {
+    if (backgroundSound) {
+      AsyncStorage.setItem(lastBgKey, backgroundSound).catch(() => {});
+    }
+  }, [backgroundSound, lastBgKey]);
+
     return (
       <GradientBackground>
         <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Meditation Player</Text>
-      <View style={styles.todayPill}>
-        <Text style={styles.todayLabel}>Today's minutes</Text>
-        <Text style={styles.todayValue}>{todayMinutes.toFixed(1)}m</Text>
-      </View>
-      {selectedMeditation && (
-        <Text style={{ marginBottom: spacing.sm, color: colors.mutedText || '#455A64' }}>
-          Selected: {selectedMeditation?.title || '—'}
-        </Text>
-      )}
-      <MeditationList onSelect={setSelectedMeditation} selected={selectedMeditation} />
-      <PlayerControls meditation={selectedMeditation} backgroundSound={backgroundSound} disabled={!selectedMeditation} accessibilityLabel={selectedMeditation? 'Play selected meditation' : 'Select a meditation to enable playback'} />
-      <BackgroundSoundSwitcher value={backgroundSound} onChange={setBackgroundSound} />
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: spacing.lg }} keyboardShouldPersistTaps="handled">
+        <Text style={styles.title}>Meditation Player</Text>
+        <View style={styles.todayPill}>
+          <Text style={styles.todayLabel}>Today's minutes</Text>
+          <Text style={styles.todayValue}>{todayMinutes.toFixed(1)}m</Text>
+        </View>
+        {selectedMeditation && (
+          <Text style={{ marginBottom: spacing.sm, color: colors.mutedText || '#455A64' }}>
+            Selected: {selectedMeditation?.title || '—'}
+          </Text>
+        )}
+        <MeditationList onSelect={setSelectedMeditation} selected={selectedMeditation} />
+        <PlayerControls meditation={selectedMeditation} backgroundSound={backgroundSound} disabled={!selectedMeditation} accessibilityLabel={selectedMeditation? 'Play selected meditation' : 'Select a meditation to enable playback'} />
+        <BackgroundSoundSwitcher value={backgroundSound} onChange={setBackgroundSound} />
+      </ScrollView>
         </SafeAreaView>
       </GradientBackground>
   );

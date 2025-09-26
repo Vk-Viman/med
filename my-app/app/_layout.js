@@ -1,6 +1,7 @@
 ﻿import { Stack, useRouter, usePathname, useNavigation } from "expo-router";
 import React, { useEffect, useRef } from 'react';
 import { AppState, TouchableWithoutFeedback, View, Text, StyleSheet, DeviceEventEmitter, TouchableOpacity, Alert } from 'react-native';
+import AppLogo from "../src/components/AppLogo";
 import { getUserProfile, updateUserProfile } from '../src/services/userProfile';
 import { deleteAllMoodEntries, getRetentionDays, getRetentionLastRunTs, setRetentionLastRunTs, purgeMoodEntriesOlderThan } from '../src/services/moodEntries';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -190,16 +191,16 @@ export default function Layout() {
         <Stack.Screen name="signup" options={{ title: "Sign Up" }} />
         <Stack.Screen name="admin" options={{ headerShown: false }} />
   <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-  <Stack.Screen name="index" options={{ title: "Home", headerLeft: () => <BackBtn /> }} />
-    <Stack.Screen name="meditation" options={{ title: "Meditation", headerLeft: () => <BackBtn /> }} />
-        <Stack.Screen name="plan" options={{ title: "Meditation Plan", headerLeft: () => <BackBtn /> }} />
-        <Stack.Screen name="report" options={{ title: "Weekly Report", headerLeft: () => <BackBtn /> }} />
-        <Stack.Screen name="notifications" options={{ title: "Reminder Settings", headerLeft: () => <BackBtn /> }} />
-        <Stack.Screen name="settings" options={{ title: "Settings", headerLeft: () => <BackBtn /> }} />
-  <Stack.Screen name="achievements" options={{ title: "Achievements", headerLeft: () => <BackBtn /> }} />
-    <Stack.Screen name="moodTracker" options={{ title: "Mood & Stress Tracker", headerLeft: () => <BackBtn /> }} />
-    <Stack.Screen name="wellnessReport" options={{ title: "Wellness Report", headerLeft: () => <BackBtn /> }} />
-  <Stack.Screen name="biometricLogin" options={{ title: "Biometric Login", headerLeft: () => <BackBtn /> }} />
+  <Stack.Screen name="index" options={{ title: "Home", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
+    <Stack.Screen name="meditation" options={{ title: "Meditation", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
+        <Stack.Screen name="plan" options={{ title: "Meditation Plan", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
+        <Stack.Screen name="report" options={{ title: "Weekly Report", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
+        <Stack.Screen name="notifications" options={{ title: "Reminder Settings", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
+        <Stack.Screen name="settings" options={{ title: "Settings", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
+  <Stack.Screen name="achievements" options={{ title: "Achievements", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
+    <Stack.Screen name="moodTracker" options={{ title: "Mood & Stress Tracker", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
+    <Stack.Screen name="wellnessReport" options={{ title: "Wellness Report", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
+  <Stack.Screen name="biometricLogin" options={{ title: "Biometric Login", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
       </Stack>
       </ActivityWrapper>
     </ThemeProvider>

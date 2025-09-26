@@ -1,0 +1,1 @@
+This project uses a custom app icon. Replace assets/icon.png with your desired 1024x1024 image (no transparency, square). For Android adaptive icon, update assets/adaptive-icon.png (foreground) and consider background color tweaks in app.json.
