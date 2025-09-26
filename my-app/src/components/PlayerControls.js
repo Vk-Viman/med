@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, StyleSheet, Alert, Platform, ToastAndroid } from "react-native";
+import { View, Text, StyleSheet, Alert, Platform, ToastAndroid } from "react-native";
 import GlowingPlayButton from "./GlowingPlayButton";
 import Slider from "@react-native-community/slider";
 import { useAudioPlayer } from "expo-audio";
@@ -8,13 +8,20 @@ import { auth, db } from "../../firebase/firebaseConfig";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { updateUserStats } from "../badges";
 
-export default function PlayerControls({ meditation, backgroundSound }) {
+export default function PlayerControls({ meditation, backgroundSound, disabled }) {
   // Create a single player instance for this component
   const player = useAudioPlayer();
   const sessionStartRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(1);
+
+  const fmtTime = (sec) => {
+    const s = Math.max(0, Math.floor(sec || 0));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${m}:${String(r).padStart(2,'0')}`;
+  };
 
   const notifySaved = (elapsedSec) => {
     const minutes = Math.round((elapsedSec / 60) * 10) / 10;
@@ -117,7 +124,11 @@ export default function PlayerControls({ meditation, backgroundSound }) {
 
   return (
     <View style={styles.controls}>
-      <GlowingPlayButton playing={isPlaying} onPress={handlePlayPause} disabled={!meditation?.url} />
+      <GlowingPlayButton playing={isPlaying} onPress={handlePlayPause} disabled={disabled || !meditation?.url} />
+      <View style={{ width:'90%', flexDirection:'row', justifyContent:'space-between' }}>
+        <View><Text style={{ color:'#01579B', fontWeight:'700' }}>{fmtTime(progress)}</Text></View>
+        <View><Text style={{ color:'#01579B', fontWeight:'700' }}>{fmtTime(duration)}</Text></View>
+      </View>
       <Slider
         style={styles.slider}
         minimumValue={0}
@@ -127,7 +138,7 @@ export default function PlayerControls({ meditation, backgroundSound }) {
         minimumTrackTintColor="#7C4DFF"
         maximumTrackTintColor="#B3E5FC"
         thumbTintColor="#7C4DFF"
-        disabled={!meditation?.url}
+        disabled={disabled || !meditation?.url}
       />
     </View>
   );

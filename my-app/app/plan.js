@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, Button, Alert } from "react-native";
+import { View, Text, StyleSheet, Button, Alert, TouchableOpacity } from "react-native";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { db, auth } from "../firebase/firebaseConfig";
 
@@ -14,14 +14,21 @@ function OptionRow({ label, options, value, onChange }) {
     <View style={{ marginBottom: 16 }}>
       <Text style={styles.label}>{label}</Text>
       <View style={styles.row}>
-        {options.map((opt) => (
-          <Button
-            key={opt}
-            title={opt}
-            onPress={() => onChange(opt)}
-            color={value === opt ? "#0288D1" : "#B3E5FC"}
-          />
-        ))}
+        {options.map((opt) => {
+          const selected = value === opt;
+          return (
+            <TouchableOpacity
+              key={opt}
+              onPress={() => onChange(opt)}
+              style={[styles.chip, selected && styles.chipSelected]}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+              accessibilityLabel={`${label} option ${opt}${selected ? ' selected' : ''}`}
+            >
+              <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{opt.toUpperCase()}</Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
     </View>
   );
@@ -135,13 +142,23 @@ export default function PlanScreen() {
       <OptionRow label="Mood" options={choices.mood} value={mood} onChange={setMood} />
       <OptionRow label="Goal" options={choices.goal} value={goal} onChange={setGoal} />
 
+      {(stress || mood || goal) && (
+        <View style={styles.summaryPill}>
+          <Text style={styles.summaryText}>
+            {`Stress: ${stress || '—'} \u2022 Mood: ${mood || '—'} \u2022 Goal: ${goal || '—'}`}
+          </Text>
+        </View>
+      )}
+
       {plan ? (
   <Text style={styles.plan}>Suggested: {plan.title} \u2022 {plan.minutes} min</Text>
       ) : (
         <Text style={styles.planPlaceholder}>Answer to see your plan</Text>
       )}
 
-      <Button title={saving ? "Saving..." : "Save Plan"} onPress={onSave} disabled={saving} />
+      <TouchableOpacity onPress={onSave} disabled={saving} style={[styles.saveBtn, saving && { opacity:0.6 }]} accessibilityRole="button">
+        <Text style={styles.saveBtnText}>{saving ? 'Saving...' : 'Save Plan'}</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -151,10 +168,18 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: "bold", color: "#0288D1", marginBottom: 16 },
   label: { marginBottom: 8, color: "#01579B", fontWeight: "500" },
   row: { flexDirection: "row", gap: 8 },
+  chip: { paddingVertical:10, paddingHorizontal:14, borderRadius:10, backgroundColor:'#B3E5FC' },
+  chipSelected: { backgroundColor:'#0288D1' },
+  chipText: { color:'#01579B', fontWeight:'700', letterSpacing:0.5 },
+  chipTextSelected: { color:'#fff' },
   plan: { marginVertical: 16, fontWeight: "600", color: "#01579B" },
   planPlaceholder: { marginVertical: 16, color: "#0277BD" },
   savedCard: { backgroundColor: "#fff", borderRadius: 12, padding: 12, marginBottom: 16 },
   savedTitle: { fontWeight: "700", color: "#01579B", marginBottom: 4 },
   savedText: { color: "#0277BD" },
   updatedText: { color: "#757575", fontSize: 12, marginTop: 2 },
+  saveBtn:{ marginTop:12, backgroundColor:'#0288D1', paddingVertical:12, borderRadius:10, alignItems:'center' },
+  saveBtnText:{ color:'#fff', fontWeight:'800', letterSpacing:0.3 }
+  ,summaryPill:{ backgroundColor:'#E3F2FD', borderRadius:12, paddingVertical:8, paddingHorizontal:12, marginTop:4 },
+  summaryText:{ color:'#01579B', fontWeight:'700' }
 });
