@@ -7,7 +7,7 @@ import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { auth } from "../firebase/firebaseConfig";
 import { createUserWithEmailAndPassword } from "firebase/auth";
-import { ensureUserProfile } from "../src/services/userProfile";
+import { ensureUserProfile, getUserProfile, isAdminType } from "../src/services/userProfile";
 import PrimaryButton from "../src/components/PrimaryButton";
 import { spacing, radius, shadow } from "../src/theme";
 import { useTheme } from "../src/theme/ThemeProvider";
@@ -23,7 +23,12 @@ export default function SignupScreen() {
     try {
   await createUserWithEmailAndPassword(auth, email, password);
   try { await ensureUserProfile(); } catch {}
-  router.replace("/");
+  try {
+  const prof = await getUserProfile();
+  router.replace(isAdminType(prof?.userType) ? '/admin' : '/(tabs)');
+  } catch {
+    router.replace('/(tabs)');
+  }
     } catch (e) {
       setError(e.message);
     }

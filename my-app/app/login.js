@@ -8,7 +8,7 @@ import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { auth } from "../firebase/firebaseConfig";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { ensureUserProfile } from "../src/services/userProfile";
+import { ensureUserProfile, getUserProfile, isAdminType } from "../src/services/userProfile";
 import PrimaryButton from "../src/components/PrimaryButton";
 import { spacing, radius, shadow } from "../src/theme";
 import { useTheme } from "../src/theme/ThemeProvider";
@@ -24,7 +24,13 @@ export default function LoginScreen() {
     try {
   await signInWithEmailAndPassword(auth, email, password);
   try { await ensureUserProfile(); } catch {}
-  router.replace("/(tabs)");
+  try {
+    const prof = await getUserProfile();
+  const dest = isAdminType(prof?.userType) ? '/admin' : '/(tabs)';
+    router.replace(dest);
+  } catch {
+    router.replace('/(tabs)');
+  }
     } catch (e) {
       setError(e.message);
     }
@@ -45,7 +51,12 @@ export default function LoginScreen() {
         return;
       }
       if (auth.currentUser) {
-        router.replace("/(tabs)");
+        try {
+          const prof = await getUserProfile();
+          router.replace(isAdminType(prof?.userType) ? '/admin' : '/(tabs)');
+        } catch {
+          router.replace('/(tabs)');
+        }
       } else {
         setError("No existing session. Please sign in once with email/password to enable biometric quick login.");
       }

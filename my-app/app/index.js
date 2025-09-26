@@ -10,6 +10,7 @@ import { Ionicons } from "@expo/vector-icons";
 import Card from "../src/components/Card";
 import { getUserProfile } from "../src/services/userProfile";
 import { getMoodSummary, getChartDataSince } from "../src/services/moodEntries";
+import { subscribeAdminConfig, getAdminConfig } from "../src/services/config";
 import { auth, db } from "../firebase/firebaseConfig";
 import { evaluateStreakBadges, listUserBadges, badgeEmoji } from "../src/badges";
 import Sparkline from "../src/components/Sparkline";
@@ -33,6 +34,7 @@ export default function HomeScreen() {
   const [trendText, setTrendText] = useState("");
   const [moodSeries, setMoodSeries] = useState([]);
   const todayHeaderRef = useRef(null);
+  const [cfg, setCfg] = useState({ allowExports:true, allowRetention:true, allowBackfillTools:false, allowMeditations:true, allowPlans:true, allowCommunity:true });
 
   const greeting = () => {
     const h = new Date().getHours();
@@ -96,7 +98,12 @@ export default function HomeScreen() {
     return () => { mounted = false; };
   };
 
-  useEffect(()=>{ loadData(); },[]);
+  useEffect(()=>{ 
+    loadData(); 
+    let unsub;
+    (async()=>{ try { setCfg(await getAdminConfig()); } catch {} ; try { unsub = subscribeAdminConfig(setCfg); } catch {} })();
+    return ()=>{ try{ unsub && unsub(); }catch{} };
+  },[]);
 
   const triggerToast = () => {
     setShowToast(true);
@@ -373,10 +380,12 @@ export default function HomeScreen() {
           </Card>
         )}
         <View style={styles.quickGrid}>
+          {cfg.allowPlans && (
           <Pressable style={({ pressed })=> [styles.gridCard, pressed && styles.gridPressed]} onPress={()=> navigate('/plan')} accessibilityLabel="Open personalized plan" accessibilityRole='button'>
             <Ionicons name='sparkles-outline' size={26} color={theme.primary} />
             <Text style={[styles.gridLabel,{ color: theme.text }]}>Plan</Text>
           </Pressable>
+          )}
           <Pressable style={({ pressed })=> [styles.gridCard, pressed && styles.gridPressed]} onPress={()=> navigate('/report')} accessibilityLabel="Open weekly report" accessibilityRole='button'>
             <Ionicons name='stats-chart-outline' size={26} color={theme.primary} />
             <Text style={[styles.gridLabel,{ color: theme.text }]}>Weekly</Text>
@@ -385,10 +394,12 @@ export default function HomeScreen() {
             <Ionicons name='happy-outline' size={26} color={theme.primary} />
             <Text style={[styles.gridLabel,{ color: theme.text }]}>Mood</Text>
           </Pressable>
+          {cfg.allowCommunity && (
           <Pressable style={({ pressed })=> [styles.gridCard, pressed && styles.gridPressed]} onPress={()=> navigate('/wellnessReport')} accessibilityLabel="Open wellness report" accessibilityRole='button'>
             <Ionicons name='pulse-outline' size={26} color={theme.primary} />
             <Text style={[styles.gridLabel,{ color: theme.text }]}>Wellness</Text>
           </Pressable>
+          )}
         </View>
 
   <Text style={[styles.sectionLabel,{ color: theme.textMuted }]} accessibilityRole='header' accessibilityLabel='Tools'>TOOLS</Text>

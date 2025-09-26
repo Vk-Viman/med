@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useState, useRef } from "react";
-import { View, Text, StyleSheet, Alert, Switch, TouchableOpacity, Share, DeviceEventEmitter, SectionList, Image, AccessibilityInfo, InteractionManager, findNodeHandle, Platform } from "react-native";
+import { View, Text, StyleSheet, Alert, Switch, TouchableOpacity, Share, DeviceEventEmitter, SectionList, Image, AccessibilityInfo, InteractionManager, findNodeHandle, Platform, ToastAndroid } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
@@ -8,7 +8,7 @@ import { auth } from "../firebase/firebaseConfig";
 import { signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword, deleteUser, sendEmailVerification } from "firebase/auth";
 import { spacing, radius, shadow } from "../src/theme";
 import { useTheme } from "../src/theme/ThemeProvider";
-import { exportAllMoodEntries, exportMoodEntriesBetween, buildMoodCSV, buildMoodMarkdown, getLocalOnlyMode, setLocalOnlyMode, deleteAllMoodEntries, escrowEncryptDeviceKey, escrowDecryptDeviceKey, getEncryptionStatus, enablePassphraseProtection, disablePassphraseProtection, unlockWithPassphrase, lockEncryptionKey, migrateLegacyToV2, backfillMoodScores } from "../src/services/moodEntries";
+import { exportAllMoodEntries, exportMoodEntriesBetween, buildMoodCSV, buildMoodMarkdown, getLocalOnlyMode, setLocalOnlyMode, deleteAllMoodEntries, escrowEncryptDeviceKey, escrowDecryptDeviceKey, getEncryptionStatus, enablePassphraseProtection, disablePassphraseProtection, unlockWithPassphrase, lockEncryptionKey, migrateLegacyToV2, backfillMoodScores, getRetentionDays, setRetentionDays, purgeMoodEntriesOlderThan } from "../src/services/moodEntries";
 import { getUserProfile, updateUserProfile, ensureUserProfile, deleteUserProfile } from '../src/services/userProfile';
 import { bumpSessionEpoch } from '../src/services/userProfile';
 import { getHapticsEnabled, setHapticsEnabled, initHapticsPref } from '../src/utils/haptics';
@@ -18,6 +18,7 @@ import * as FileSystem from 'expo-file-system';
 import * as FSLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { getAdminConfig, subscribeAdminConfig } from '../src/services/config';
 
 const BIOMETRIC_PREF_KEY = 'pref_biometric_enabled_v1';
 
@@ -85,6 +86,10 @@ export default function SettingsScreen() {
   const [busyEnc, setBusyEnc] = useState(false);
   const [migrateExpanded, setMigrateExpanded] = useState(false);
   const [migrateResult, setMigrateResult] = useState(null);
+  // Retention
+  const [retentionDays, setRetentionDaysState] = useState(0); // 0 = disabled
+  const [purging, setPurging] = useState(false);
+  const [cfg, setCfg] = useState({ allowExports:true, allowRetention:true, allowBackfillTools:false });
 
   // ===== Key Escrow Handlers =====
   const handleCreateEscrow = async () => {
@@ -137,7 +142,14 @@ export default function SettingsScreen() {
     // Load profile
   try { await ensureUserProfile(); const prof = await getUserProfile(); if(prof){ setDisplayName(prof.displayName || ''); if(typeof prof.biometricEnabled === 'boolean') setBiometricPref(prof.biometricEnabled); if(prof.avatarB64) setAvatarB64(prof.avatarB64); if(prof.themeMode==='dark'||prof.themeMode==='light'){ setThemeModeLocal(prof.themeMode); } if(typeof prof.analyticsOptOut === 'boolean') setAnalyticsOptOut(prof.analyticsOptOut); if('termsAcceptedVersion' in prof) setTermsAcceptedVersion(prof.termsAcceptedVersion); if('privacyAcceptedAt' in prof) setPrivacyAcceptedAt(prof.privacyAcceptedAt); } } catch {}
   try { const ts = await AsyncStorage.getItem('last_remote_wipe_ts'); if(ts) setLastRemoteWipe(Number(ts)); } catch {}
+  try { const r = await getRetentionDays(); setRetentionDaysState(r||0); } catch {}
   })(); },[]);
+  // Subscribe to admin config
+  useEffect(()=>{
+    let unsub;
+    (async()=>{ try { setCfg(await getAdminConfig()); } catch {} ; try { unsub = subscribeAdminConfig(setCfg); } catch {} })();
+    return ()=>{ try{ unsub && unsub(); }catch{} };
+  },[]);
 
   // Load encryption status
   useEffect(()=>{ (async()=>{ try { const st = await getEncryptionStatus(); setEncStatus(st); } catch {} })(); },[]);
@@ -171,6 +183,43 @@ export default function SettingsScreen() {
   const saveToFileAndShare = async (filename, mimeType, content) => {
     try {
       let fileUri = '';
+      let savedAnyFile = false;
+      let folderLabel = '';
+      const labelForBase = (base) => {
+        if(!base) return '';
+        if(base === FileSystem.documentDirectory) return 'App Documents';
+        if(base === FileSystem.cacheDirectory) return 'App Cache';
+        return 'App Storage';
+      };
+      const getFolderLabelFromUri = (uri) => {
+        try{
+          if(!uri) return '';
+          if(uri.startsWith('content://')){
+            const dec = decodeURIComponent(uri);
+            const treeIdx = dec.indexOf('tree/');
+            let part = dec;
+            if(treeIdx !== -1){ part = dec.slice(treeIdx + 5); }
+            if(part.includes(':')){ part = part.split(':').pop(); }
+            if(part.includes('/')){ const segs = part.split('/'); part = segs[segs.length - 1]; }
+            return part || 'Selected folder';
+          }
+          if(uri.startsWith('file://')){
+            const path = uri.replace('file://','');
+            const dirPath = path.substring(0, path.lastIndexOf('/'));
+            const segs = dirPath.split('/');
+            return segs[segs.length - 1] || 'App Storage';
+          }
+          return 'App Storage';
+        }catch{ return 'App Storage'; }
+      };
+      const showSuccessToast = (msg) => {
+        if(!msg) return;
+        if(Platform.OS === 'android'){
+          try{ ToastAndroid.show(msg, ToastAndroid.SHORT); }catch{}
+        } else {
+          try{ Alert.alert('', msg); }catch{}
+        }
+      };
       if(Platform.OS === 'android'){
         const SAF = FileSystem.StorageAccessFramework;
         if(SAF){
@@ -183,11 +232,14 @@ export default function SettingsScreen() {
             if(!dirUri){
               // User did not grant; share content only and return
               await Share.share({ message: content });
+              showSuccessToast('Shared export (no file saved)');
               return;
             }
             const uri = await SAF.createFileAsync(dirUri, filename, mimeType);
             await FSLegacy.writeAsStringAsync(uri, content, { encoding: 'utf8' });
             fileUri = uri;
+            savedAnyFile = true;
+            folderLabel = getFolderLabelFromUri(dirUri);
           }catch(e){
             // SAF path failed; attempt app cache write as fallback
             try{ await AsyncStorage.removeItem('android_export_dir_uri_v1'); }catch{}
@@ -196,29 +248,45 @@ export default function SettingsScreen() {
             if(!base){ throw new Error('No writable directory available'); }
             fileUri = `${base}${filename}`;
             await FSLegacy.writeAsStringAsync(fileUri, content, { encoding: 'utf8' });
+            savedAnyFile = true;
+            folderLabel = labelForBase(base);
           }
         } else {
           // No SAF available; use app storage or share content only
           const base = (FileSystem.documentDirectory || FileSystem.cacheDirectory || '');
-          if(!base){ await Share.share({ message: content }); return; }
+          if(!base){ await Share.share({ message: content }); showSuccessToast('Shared export (no file saved)'); return; }
           fileUri = `${base}${filename}`;
           await FSLegacy.writeAsStringAsync(fileUri, content, { encoding: 'utf8' });
+          savedAnyFile = true;
+          folderLabel = labelForBase(base);
         }
       } else {
         // iOS / others: write to app directory
         const base = (FileSystem.documentDirectory || FileSystem.cacheDirectory || '');
-        if(!base){ await Share.share({ message: content }); return; }
+        if(!base){ await Share.share({ message: content }); showSuccessToast('Shared export (no file saved)'); return; }
         fileUri = `${base}${filename}`;
         await FSLegacy.writeAsStringAsync(fileUri, content, { encoding: 'utf8' });
+        savedAnyFile = true;
+        folderLabel = labelForBase(base);
       }
       // Normalize for sharing where needed
       if(!fileUri.startsWith('file://') && !fileUri.startsWith('content://')){
         fileUri = `file://${fileUri}`;
       }
-      if(await Sharing.isAvailableAsync()){
-        await Sharing.shareAsync(fileUri, { UTI: mimeType, mimeType, dialogTitle: `Share ${filename}` });
-      } else {
-        await Share.share({ url: fileUri, message: `Export file: ${filename}` });
+      try{
+        if(await Sharing.isAvailableAsync()){
+          await Sharing.shareAsync(fileUri, { UTI: mimeType, mimeType, dialogTitle: `Share ${filename}` });
+        } else {
+          await Share.share({ url: fileUri, message: `Export file: ${filename}` });
+        }
+        if(savedAnyFile){
+          showSuccessToast(`Saved to ${folderLabel} • Shared`);
+        } else {
+          showSuccessToast('Shared export (no file saved)');
+        }
+      } catch(shareErr){
+        if(savedAnyFile){ showSuccessToast(`Saved to ${folderLabel}`); }
+        Alert.alert('Share Failed', shareErr.message);
       }
     } catch(e){ Alert.alert('Export Failed', e.message); }
   };
@@ -348,6 +416,24 @@ export default function SettingsScreen() {
           try { await deleteAllMoodEntries(); Alert.alert('Deleted','All mood entries removed.'); } catch(e){ Alert.alert('Error', e.message); }
         } }
     ]);
+  };
+
+  const confirmManualPurge = () => {
+    if(!retentionDays || retentionDays<=0){ Alert.alert('Auto-Purge','Set a retention period first (e.g., 30 days).'); return; }
+    Alert.alert('Purge Old Entries', `Delete entries older than ${retentionDays} days? This cannot be undone.`, [
+      { text:'Cancel', style:'cancel' },
+      { text:'Delete', style:'destructive', onPress: async ()=>{
+          if(purging) return; setPurging(true);
+          try{ const n = await purgeMoodEntriesOlderThan({ days: retentionDays }); Alert.alert('Auto-Purge', n? `Deleted ${n} old entries.` : 'No entries older than the selected period.'); }
+          catch(e){ Alert.alert('Purge Failed', e.message); }
+          finally{ setPurging(false); }
+        } }
+    ]);
+  };
+
+  const updateRetention = async (days) => {
+    setRetentionDaysState(days);
+    try{ await setRetentionDays(days); }catch{}
   };
 
   // ===== Password Strength Evaluation =====
@@ -489,24 +575,49 @@ export default function SettingsScreen() {
         { key:'encManage', type:'expand', label: encExpanded? 'Hide Encryption':'Manage Encryption', onToggle: ()=> setEncExpanded(p=>!p), expanded: encExpanded, content:'encryption' }
       ]
     },
-    {
+    cfg.allowExports ? {
       title: 'Data Management',
       data: [
         { key:'export', type:'action', label: exporting? 'Exporting...' : 'Export Data', disabled: exporting, onPress: ()=>{ if(exporting) return; Alert.alert('Export Format','Choose a format to export your mood entries.',[ { text:'JSON', onPress:()=>doExport('json') }, { text:'CSV', onPress:()=>doExport('csv') }, { text:'Markdown', onPress:()=>doExport('md') }, { text:'Cancel', style:'cancel' } ]);} },
         { key:'exportRange', type:'expand', label: rangeExporting? 'Exporting...' : 'Export Date Range', onToggle: ()=>{}, expanded: true, content:'exportRange' },
-        { key:'backfillMood', type:'action', label:'Backfill Mood Scores (90d)', onPress: async()=>{
+        ...(cfg.allowBackfillTools ? [{ key:'backfillMood', type:'action', label:'Backfill Mood Scores (90d)', onPress: async()=>{
             try { const res = await backfillMoodScores({ days: 90 });
               Alert.alert('Backfill Complete', `Updated ${res.updated} of ${res.scanned} entries in last ${res.days} days.`);
             } catch(e){ Alert.alert('Backfill Error', e.message); }
-          }, variant:'secondary' },
+          }, variant:'secondary' }]:[]),
         { key:'delAll', type:'action', label:'Delete All Data', danger:true, onPress: confirmDeleteAll }
       ]
-    },
+    } : null,
+    cfg.allowRetention ? {
+      title: 'Retention & Deletion',
+      data: [
+        { key:'retDesc', type:'note', text:'Auto-delete entries older than N days. Set to 0 to disable.' },
+        { key:'retention', type:'retention' },
+        { key:'manualPurge', type:'action', label: purging? 'Purging...' : 'Purge Old Entries Now', onPress: confirmManualPurge, danger:true }
+      ]
+    } : null,
     escrowSection,
     { title:'Consent', data: consentItems }
   ].filter(Boolean);
 
   const renderItem = ({ item }) => {
+    if(item.type === 'retention'){
+      return (
+        <View style={styles.itemRow}>
+          <View style={styles.rowBetweenMul}>
+            <Text style={styles.label}>Retention (days)</Text>
+            <View style={styles.inlineOptions}>
+              {[0, 7, 14, 30, 60, 90].map(d => (
+                <TouchableOpacity key={d} onPress={()=> updateRetention(d)} style={[styles.intervalChip, retentionDays===d && styles.intervalChipActive]} accessibilityLabel={`Retention ${d} days`} accessibilityState={{ selected: retentionDays===d }} accessibilityRole='button'>
+                  <Text style={[styles.intervalChipText, retentionDays===d && styles.intervalChipTextActive]}>{d}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+          <Text style={styles.noteText}>{retentionDays>0? `Entries older than ${retentionDays} days will be auto‑deleted.` : 'Auto‑purge is disabled.'}</Text>
+        </View>
+      );
+    }
     if(item.type === 'action'){
       return (
         <View style={styles.itemRow}>

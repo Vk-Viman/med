@@ -417,6 +417,52 @@ export async function deleteAllMoodEntries(){
   try { await bumpChartCacheVersion(); } catch {}
 }
 
+// ===== Retention policy =====
+const RETENTION_DAYS_KEY = 'retention_days_v1';
+const RETENTION_LAST_RUN_TS_KEY = 'retention_last_run_ts_v1';
+export async function getRetentionDays(){
+  try { const v = await AsyncStorage.getItem(RETENTION_DAYS_KEY); return v? Number(v): 0; } catch { return 0; }
+}
+export async function setRetentionDays(days){
+  try { await AsyncStorage.setItem(RETENTION_DAYS_KEY, String(Number(days)||0)); } catch {}
+}
+export async function getRetentionLastRunTs(){
+  try { const v = await AsyncStorage.getItem(RETENTION_LAST_RUN_TS_KEY); return v? Number(v): 0; } catch { return 0; }
+}
+export async function setRetentionLastRunTs(ts){
+  try { await AsyncStorage.setItem(RETENTION_LAST_RUN_TS_KEY, String(ts||Date.now())); } catch {}
+}
+
+// Purge entries older than N days. Returns number of entries deleted.
+export async function purgeMoodEntriesOlderThan({ days }){
+  const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');
+  const n = Number(days)||0; if(n<=0) return 0;
+  const now = new Date();
+  const cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  cutoff.setDate(cutoff.getDate() - n);
+  const cutoffTs = Timestamp.fromDate(cutoff);
+  // Query all entries with createdAt <= cutoff
+  const qRef = query(collection(db, `users/${uid}/moods`), where('createdAt','<=', cutoffTs), orderBy('createdAt','asc'));
+  const snap = await getDocs(qRef);
+  let deleted = 0;
+  const batchSize = 400;
+  let current = [];
+  for(const d of snap.docs){
+    current.push(d);
+    if(current.length === batchSize){
+      await Promise.all(current.map(docSnap=> deleteDoc(doc(db, `users/${uid}/moods`, docSnap.id))));
+      deleted += current.length;
+      current = [];
+    }
+  }
+  if(current.length){
+    await Promise.all(current.map(docSnap=> deleteDoc(doc(db, `users/${uid}/moods`, docSnap.id))));
+    deleted += current.length;
+  }
+  if(deleted>0){ try { await bumpChartCacheVersion(); } catch {} }
+  return deleted;
+}
+
 // Lightweight summary: latest mood entry & streak (consecutive days including today)
 export async function getMoodSummary({ streakLookbackDays = 14 } = {}){
   const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');

@@ -33,6 +33,7 @@ export async function ensureUserProfile(extra = {}){
   themeMode: 'light',
   wipeRequested: false,
       localOnlyLast: false,
+      userType: 'user', // hidden role field: 'user' | 'admin'
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       analyticsOptOut: false,
@@ -44,7 +45,12 @@ export async function ensureUserProfile(extra = {}){
     await setDoc(ref, base, { merge: true });
     return { id: uid, ...base };
   }
-  return { id: uid, ...snap.data() };
+  const data = snap.data();
+  if(typeof data.userType === 'undefined'){
+    try { await updateDoc(ref, { userType: 'user', updatedAt: serverTimestamp() }); } catch {}
+    return { id: uid, ...data, userType: 'user' };
+  }
+  return { id: uid, ...data };
 }
 
 export async function getUserProfile(){
@@ -71,4 +77,9 @@ export async function flagWipeRequested(val=true){
 export async function bumpSessionEpoch(){
   const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');
   await updateDoc(userDocRef(uid), { sessionEpoch: Date.now(), updatedAt: serverTimestamp() });
+}
+
+// Helper: normalize role value and check admin
+export function isAdminType(role){
+  try { return String(role || '').trim().toLowerCase() === 'admin'; } catch { return false; }
 }

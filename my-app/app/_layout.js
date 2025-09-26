@@ -2,7 +2,7 @@
 import React, { useEffect, useRef } from 'react';
 import { AppState, TouchableWithoutFeedback, View, Text, StyleSheet, DeviceEventEmitter, TouchableOpacity, Alert } from 'react-native';
 import { getUserProfile, updateUserProfile } from '../src/services/userProfile';
-import { deleteAllMoodEntries } from '../src/services/moodEntries';
+import { deleteAllMoodEntries, getRetentionDays, getRetentionLastRunTs, setRetentionLastRunTs, purgeMoodEntriesOlderThan } from '../src/services/moodEntries';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { ThemeProvider, useTheme } from "../src/theme/ThemeProvider";
@@ -63,6 +63,27 @@ function ActivityWrapper({ children }){
     lockTimerRef.current = setInterval(checkLock, 1000);
     return ()=>{ sub.remove(); if(lockTimerRef.current) clearInterval(lockTimerRef.current); };
   },[]);
+
+  // Retention auto-purge check once per day when app becomes active
+  useEffect(()=>{
+    const maybeRunRetention = async ()=>{
+      try {
+        const days = await getRetentionDays();
+        if(!days || days<=0) return;
+        const last = await getRetentionLastRunTs();
+        const now = Date.now();
+        const ONE_DAY = 24*60*60*1000;
+        if(!last || (now - last) > ONE_DAY){
+          try { await purgeMoodEntriesOlderThan({ days }); } catch {}
+          try { await setRetentionLastRunTs(now); } catch {}
+        }
+      } catch {}
+    };
+    const sub = AppState.addEventListener('change', (s)=>{ if(s==='active') maybeRunRetention(); });
+    // run once on mount as well
+    maybeRunRetention();
+    return ()=> sub.remove();
+  }, []);
 
   // Remote wipe polling (lightweight): on focus + every 30s
   useEffect(()=>{
@@ -167,6 +188,7 @@ export default function Layout() {
         <Stack.Screen name="splash" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ title: "Login" }} />
         <Stack.Screen name="signup" options={{ title: "Sign Up" }} />
+        <Stack.Screen name="admin" options={{ headerShown: false }} />
   <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
   <Stack.Screen name="index" options={{ title: "Home", headerLeft: () => <BackBtn /> }} />
     <Stack.Screen name="meditation" options={{ title: "Meditation", headerLeft: () => <BackBtn /> }} />
