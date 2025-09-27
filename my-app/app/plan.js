@@ -2,6 +2,7 @@
 import { View, Text, StyleSheet, Button, Alert, TouchableOpacity } from "react-native";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { db, auth } from "../firebase/firebaseConfig";
+import { useRouter } from "expo-router";
 
 const choices = {
   stress: ["Low", "Medium", "High"],
@@ -35,6 +36,7 @@ function OptionRow({ label, options, value, onChange }) {
 }
 
 export default function PlanScreen() {
+  const router = useRouter();
   const [stress, setStress] = useState(null);
   const [mood, setMood] = useState(null);
   const [goal, setGoal] = useState(null);
@@ -125,6 +127,14 @@ export default function PlanScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Personalized Meditation Plan</Text>
+      <TouchableOpacity
+        onPress={() => router.push('/plan-setup')}
+        accessibilityRole="button"
+        accessibilityLabel="Open guided plan setup questionnaire"
+        style={styles.guidedBtn}
+      >
+        <Text style={styles.guidedBtnText}>{savedPlan ? 'Retake questionnaire' : 'Guided setup'}</Text>
+      </TouchableOpacity>
       {!loadingSaved && (
         savedPlan ? (
           <View style={styles.savedCard}>
@@ -182,4 +192,6 @@ const styles = StyleSheet.create({
   saveBtnText:{ color:'#fff', fontWeight:'800', letterSpacing:0.3 }
   ,summaryPill:{ backgroundColor:'#E3F2FD', borderRadius:12, paddingVertical:8, paddingHorizontal:12, marginTop:4 },
   summaryText:{ color:'#01579B', fontWeight:'700' }
+  ,guidedBtn:{ alignSelf:'flex-start', backgroundColor:'#E3F2FD', paddingVertical:10, paddingHorizontal:14, borderRadius:10, marginBottom:10 }
+  ,guidedBtnText:{ color:'#0288D1', fontWeight:'800' }
 });
