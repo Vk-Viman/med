@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, Animated, TextInput, ScrollView } from "react-native";
+import * as FileSystem from 'expo-file-system/legacy';
+import { addDownloadListener } from '../utils/downloadEvents';
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { auth } from "../../firebase/firebaseConfig";
 
@@ -10,7 +12,7 @@ const meditations = [
 ];
 const CATEGORIES = ["All", "Favorites", ...Array.from(new Set(meditations.map(m => m.category)))];
 
-function Item({ med, selected, onPress, onToggleFavorite, isFav }) {
+function Item({ med, selected, onPress, onToggleFavorite, isFav, isOffline }) {
   const scale = useRef(new Animated.Value(1)).current;
   const pressIn = () => Animated.spring(scale, { toValue: 0.98, useNativeDriver: true, speed: 30 }).start();
   const pressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 30 }).start();
@@ -28,6 +30,11 @@ function Item({ med, selected, onPress, onToggleFavorite, isFav }) {
           <View>
             <Text style={styles.text}>{med.title}</Text>
             <Text style={styles.category}>{med.category}</Text>
+            {isOffline && (
+              <View style={styles.offlineBadge} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+                <Text style={styles.offlineBadgeText}>Offline</Text>
+              </View>
+            )}
           </View>
           <TouchableOpacity
             onPress={onToggleFavorite}
@@ -48,6 +55,26 @@ export default function MeditationList({ onSelect, selected }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
   const [favorites, setFavorites] = useState([]);
+  const [offlineMap, setOfflineMap] = useState({});
+
+  const sanitize = (s)=> String(s||'med').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const pathFor = (m)=> `${(FileSystem.documentDirectory||'')}meditations/${sanitize(m.id || m.docId || m.url || 'med')}.mp3`;
+
+  // probe which items are available offline
+  const refreshOffline = async ()=>{
+    try{
+      const dir = `${FileSystem.documentDirectory||''}meditations`;
+      try{ const info = await FileSystem.getInfoAsync(dir); if(!info.exists) { setOfflineMap({}); return; } } catch { setOfflineMap({}); return; }
+      const entries = await Promise.all(meditations.map(async m => {
+        const p = pathFor(m);
+        try{ const info = await FileSystem.getInfoAsync(p); return [m.id, !!info.exists && (info.size??0)>0]; } catch { return [m.id, false]; }
+      }));
+      const map = Object.fromEntries(entries);
+      setOfflineMap(map);
+    }catch{ setOfflineMap({}); }
+  };
+
+  useEffect(()=>{ refreshOffline(); const unsub = addDownloadListener(()=> refreshOffline()); return ()=> { try{unsub();}catch{} }; },[]);
 
   useEffect(() => {
     (async () => {
@@ -111,6 +138,7 @@ export default function MeditationList({ onSelect, selected }) {
             onPress={() => onSelect(med)}
             onToggleFavorite={() => toggleFavorite(med.id)}
             isFav={favorites.includes(med.id)}
+            isOffline={!!offlineMap[med.id]}
           />
         ))}
         {filtered.length === 0 && (

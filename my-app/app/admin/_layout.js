@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Stack, useRouter, useNavigation } from 'expo-router';
-import { View, ActivityIndicator, Alert, TouchableOpacity, Text, StyleSheet, Platform } from 'react-native';
+import { Stack, useRouter, useNavigation, usePathname } from 'expo-router';
+import { View, ActivityIndicator, Alert, TouchableOpacity, Text, StyleSheet, Platform, BackHandler } from 'react-native';
 import { getUserProfile, isAdminType } from '../../src/services/userProfile';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -11,6 +11,7 @@ export default function AdminLayout(){
   const { theme } = useTheme();
   const [checking, setChecking] = useState(true);
   const nav = useNavigation();
+  const pathname = usePathname();
   
 
   useEffect(()=>{
@@ -47,11 +48,7 @@ export default function AdminLayout(){
   const BackBtn = () => {
     const handleBack = () => {
       try {
-        if (nav?.canGoBack && nav.canGoBack()) {
-          nav.goBack();
-          return;
-        }
-        // If at admin root (no history), stay within admin and go to dashboard
+        // Always stay inside admin area; navigate to admin dashboard
         router.replace('/admin');
       } catch (e) {
         try { router.replace('/admin'); } catch {}
@@ -63,6 +60,20 @@ export default function AdminLayout(){
       </TouchableOpacity>
     );
   };
+
+  // On Android hardware back, keep admin users inside admin area
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      const p = pathname || '';
+      if (p.startsWith('/admin') && p !== '/admin') {
+        try { router.replace('/admin'); } catch {}
+        return true; // handled
+      }
+      return false; // default behavior
+    });
+    return () => sub.remove();
+  }, [pathname]);
 
   if(checking){
     return (

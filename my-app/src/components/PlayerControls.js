@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Alert, Platform, ToastAndroid, TouchableOpacity, Animated, Easing } from "react-native";
+import { View, Text, StyleSheet, Alert, Platform, ToastAndroid, TouchableOpacity, Animated, Easing, AppState } from "react-native";
+import NetInfo from '@react-native-community/netinfo';
+import * as FileSystem from 'expo-file-system/legacy';
+import CryptoJS from 'crypto-js';
 import * as Application from 'expo-application';
 import GlowingPlayButton from "./GlowingPlayButton";
 import Slider from "@react-native-community/slider";
@@ -7,10 +10,13 @@ import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { Asset } from "expo-asset";
 import { impact, selection } from "../utils/haptics";
 import { auth, db } from "../../firebase/firebaseConfig";
-import { collection, doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
+import { collection, doc, setDoc, getDoc, serverTimestamp, getDocs, query as fsQuery, orderBy, limit } from "firebase/firestore";
 import { updateUserStats } from "../badges";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "../theme/ThemeProvider";
+import { getDefaultBg, getAutoplayLast, getKeepAwake, getAutoPauseOnCall } from '../utils/playerPrefs';
+import { notifyDownloadChanged } from '../utils/downloadEvents';
+import { activateKeepAwakeAsync, deactivateKeepAwakeAsync } from 'expo-keep-awake';
 
 const BG_SOURCES = {
   none: null,
@@ -21,6 +27,36 @@ const BG_SOURCES = {
 
 export default function PlayerControls({ meditation, backgroundSound, disabled }) {
   const { theme } = useTheme();
+  const [prefs, setPrefs] = useState({ defaultBg:'none', autoplayLast:false, keepAwake:false, autoPauseOnCall:true });
+  useEffect(()=>{ (async()=>{
+    try { setPrefs({
+      defaultBg: await getDefaultBg(),
+      autoplayLast: await getAutoplayLast(),
+      keepAwake: await getKeepAwake(),
+      autoPauseOnCall: await getAutoPauseOnCall(),
+    }); } catch {}
+  })(); },[]);
+  // Keep screen awake when preference is enabled using imperative API to avoid conditional hooks
+  useEffect(() => {
+    let didActivate = false;
+    (async () => {
+      try {
+        if (prefs.keepAwake) {
+          await activateKeepAwakeAsync('PlayerControls');
+          didActivate = true;
+        } else {
+          await deactivateKeepAwakeAsync('PlayerControls');
+        }
+      } catch {}
+    })();
+    return () => {
+      (async () => {
+        try {
+          if (didActivate) await deactivateKeepAwakeAsync('PlayerControls');
+        } catch {}
+      })();
+    };
+  }, [prefs.keepAwake]);
   // Create a single player instance for this component
   const player = useAudioPlayer(null, { updateInterval: 250, downloadFirst: true });
   const status = useAudioPlayerStatus(player);
@@ -33,10 +69,109 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
   const volKey = `@med:bgVol:${uid}`;
   const activeKey = `@med:activeSession:${uid}`;
   const ambientCacheRef = useRef({});
+  const assetHandlesRef = useRef({ meditation: null });
   const sessionMetaRef = useRef(null);
   const skipLeftScale = useRef(new Animated.Value(1)).current;
   const skipRightScale = useRef(new Animated.Value(1)).current;
   const loopScale = useRef(new Animated.Value(1)).current;
+  const [loadError, setLoadError] = useState(null);
+  const loadingRef = useRef(false);
+  const wasPlayingRef = useRef(false);
+  const DEBUG_AUDIO = false;
+  const persistKey = `@med:playbackState:${uid}`;
+  const [isOnline, setIsOnline] = useState(true);
+  const isOnlineRef = useRef(true);
+  const [downloadedUri, setDownloadedUri] = useState(null);
+  const [dlProgress, setDlProgress] = useState(null); // 0..1 or null
+  const [queuedPlay, setQueuedPlay] = useState(false);
+  const queuedPlayRef = useRef(false);
+  useEffect(() => { queuedPlayRef.current = queuedPlay; }, [queuedPlay]);
+  const downloadKey = meditation?.id || meditation?.docId || meditation?.url || 'med';
+  const isInsecureHttp = (u) => typeof u === 'string' && u.startsWith('http://');
+
+  // Insights state (weekly minutes and streak)
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [weeklyMinutes, setWeeklyMinutes] = useState(0);
+  const [streakDays, setStreakDays] = useState(0);
+  const lastInsightsFetchRef = useRef(0);
+  const [todayMinutes, setTodayMinutes] = useState(0);
+  const DAILY_GOAL_MIN = 10;
+
+  const startOfDay = (d) => {
+    const dt = new Date(d);
+    dt.setHours(0,0,0,0);
+    return dt;
+  };
+  const daysAgo = (n) => {
+    const dt = new Date();
+    dt.setDate(dt.getDate() - n);
+    dt.setHours(0,0,0,0);
+    return dt;
+  };
+  const computeInsights = (sessions) => {
+    // Build per-day totals for last 30 days
+    const today0 = startOfDay(new Date());
+    const buckets = new Map(); // key: yyyy-mm-dd, value: minutes
+    for (let i = 0; i < 30; i++) {
+      const d = daysAgo(i);
+      const key = d.toISOString().slice(0,10);
+      buckets.set(key, 0);
+    }
+    sessions.forEach((s) => {
+      const endedAt = s.endedAt;
+      const durSec = Math.max(0, Number(s.durationSec || 0));
+      if (!endedAt || !durSec) return;
+      const dt = endedAt instanceof Date ? endedAt : (endedAt?.toDate ? endedAt.toDate() : null);
+      if (!dt) return;
+      const dayKey = startOfDay(dt).toISOString().slice(0,10);
+      if (buckets.has(dayKey)) {
+        const prev = buckets.get(dayKey) || 0;
+        buckets.set(dayKey, prev + Math.round(durSec / 60));
+      }
+    });
+    // Weekly minutes (last 7 days including today)
+    let weekSum = 0;
+    for (let i = 0; i < 7; i++) {
+      weekSum += buckets.get(daysAgo(i).toISOString().slice(0,10)) || 0;
+    }
+    const todayKey = daysAgo(0).toISOString().slice(0,10);
+    const todayMin = buckets.get(todayKey) || 0;
+    // Current streak: consecutive days back from today with minutes > 0
+    let streak = 0;
+    for (let i = 0; i < 30; i++) {
+      const m = buckets.get(daysAgo(i).toISOString().slice(0,10)) || 0;
+      if (m > 0) streak += 1; else break;
+    }
+    setWeeklyMinutes(weekSum);
+    setStreakDays(streak);
+    setTodayMinutes(todayMin);
+  };
+  const fetchInsights = async () => {
+    if (!auth.currentUser) return;
+    const now = Date.now();
+    if (now - lastInsightsFetchRef.current < 30000) return; // throttle 30s
+    lastInsightsFetchRef.current = now;
+    setInsightsLoading(true);
+    try {
+      const ref = collection(db, "users", auth.currentUser.uid, "sessions");
+      // Fetch most recent sessions; filter last 30 days client-side
+      const q = fsQuery(ref, orderBy('endedAt', 'desc'), limit(200));
+      const snap = await getDocs(q);
+      const cutoff = daysAgo(30);
+      const rows = [];
+      snap.forEach(docSnap => {
+        const d = docSnap.data();
+        const endedAt = d?.endedAt?.toDate ? d.endedAt.toDate() : null;
+        if (!endedAt || endedAt < cutoff) return;
+        rows.push({ durationSec: d?.durationSec || 0, endedAt });
+      });
+      computeInsights(rows);
+    } catch {
+      // keep silent, don't block UI
+    } finally {
+      setInsightsLoading(false);
+    }
+  };
 
   // Helper: quick press animation for buttons (scale down then spring back)
   const pressAnim = (animatedValue) => {
@@ -72,6 +207,8 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
     impact('light');
     if (Platform.OS === "android") ToastAndroid.show(msg, ToastAndroid.SHORT);
     else Alert.alert("Saved", msg);
+    // Refresh insights shortly after save
+    setTimeout(() => { fetchInsights(); }, 300);
   };
 
   // Finalize and persist a session safely (idempotent by docId)
@@ -128,33 +265,436 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
     })();
   }, []);
 
+  // Helper to (re)load the selected meditation audio with local caching and error handling
+  const attemptLoad = async (opts = { retries: 3 }) => {
+    const url = meditation?.url;
+    if (url) {
+      // Prefer a previously downloaded local file if available
+      if (downloadedUri) {
+        try {
+          await player.replace({ uri: downloadedUri });
+          setLoadError(null);
+          return true;
+        } catch {}
+      }
+      if (!isOnlineRef.current) {
+        setLoadError("You're offline. We'll retry when you’re back online.");
+        return false;
+      }
+      try {
+        if (loadingRef.current) return false;
+        loadingRef.current = true;
+        setLoadError(null);
+        let lastErr = null;
+        const retries = Math.max(1, Number(opts?.retries ?? 3));
+        for (let i = 0; i < retries; i++) {
+          try {
+            // Try to pre-download and then use local uri to avoid buffering
+            let srcUri = url;
+            try {
+              const asset = await Asset.fromURI(url);
+              await asset.downloadAsync();
+              assetHandlesRef.current.meditation = asset;
+              srcUri = asset.localUri || asset.uri || url;
+            } catch {}
+            await player.replace({ uri: srcUri });
+            loadingRef.current = false;
+            setLoadError(null);
+            if (DEBUG_AUDIO) console.log('[Audio] replace success', { srcUri });
+            return true;
+          } catch (err) {
+            lastErr = err;
+            // Exponential backoff: 250ms, 750ms, 1750ms ...
+            if (i < retries - 1) {
+              const delay = 250 * Math.pow(2, i) + 0;
+              await new Promise((res) => setTimeout(res, delay));
+            }
+          }
+        }
+        const msgStr = String(lastErr?.message || '').toLowerCase();
+        const offlineLikely = msgStr.includes('network') || msgStr.includes('failed to connect') || msgStr.includes('offline') || msgStr.includes('timed out');
+        setLoadError(offlineLikely ? "You're offline. We'll retry when you’re back online." : 'Unable to load audio. Tap Retry.');
+        loadingRef.current = false;
+        if (DEBUG_AUDIO) console.log('[Audio] replace failed', { error: String(lastErr) });
+        return false;
+      } catch (e) {
+        const msgStr = String(e?.message || '').toLowerCase();
+        const offlineLikely = msgStr.includes('network') || msgStr.includes('failed to connect') || msgStr.includes('offline') || msgStr.includes('timed out');
+        setLoadError(offlineLikely ? "You're offline. We'll retry when you’re back online." : 'Unable to load audio. Tap Retry.');
+        loadingRef.current = false;
+        if (DEBUG_AUDIO) console.log('[Audio] outer load error', { error: String(e) });
+        return false;
+      }
+    } else {
+      // If switching to no track while a session is running, close and log it
+      if (sessionStartRef.current) {
+        const meta = sessionMetaRef.current || { startTs: sessionStartRef.current, title: meditation?.title, meditationId: meditation?.id, bg: backgroundSound, loopAtStart: loop, bgVolumeAtStart: bgVol, meditationUrl: meditation?.url };
+        await finalizeSession(meta, Date.now());
+        sessionStartRef.current = null;
+      }
+      try { player.remove(); } catch {}
+      assetHandlesRef.current.meditation = null;
+      setLoadError(null);
+      return true;
+    }
+  };
+
+  // Offline download helpers
+  const getDownloadPath = () => `${FileSystem.documentDirectory || ''}meditations/${String(downloadKey || 'med').replace(/[^a-zA-Z0-9_-]/g, '_')}.mp3`;
+  const ensureDir = async (dir) => {
+    try {
+      const info = await FileSystem.getInfoAsync(dir);
+      if (!info.exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+    } catch {}
+  };
+  const checkDownloaded = async () => {
+    if (!meditation?.url) { setDownloadedUri(null); return; }
+    const dir = `${FileSystem.documentDirectory || ''}meditations`;
+    await ensureDir(dir);
+    const path = getDownloadPath();
+    try {
+      const info = await FileSystem.getInfoAsync(path);
+      if (info.exists) setDownloadedUri(path);
+      else setDownloadedUri(null);
+    } catch { setDownloadedUri(null); }
+  };
+  useEffect(() => { checkDownloaded(); }, [downloadKey, meditation?.url]);
+
+  // Remove downloaded file
+  const removeDownload = async () => {
+    if (!downloadedUri) return;
+    const path = getDownloadPath();
+    const confirm = () => new Promise((res)=>{
+      if (Platform.OS === 'android') return res(true);
+      Alert.alert('Remove download', 'This will free up storage and require internet next time. Continue?', [
+        { text:'Cancel', style:'cancel', onPress: ()=> res(false) },
+        { text:'Remove', style:'destructive', onPress: ()=> res(true) },
+      ]);
+    });
+    try {
+      const ok = await confirm();
+      if(!ok) return;
+      await FileSystem.deleteAsync(path, { idempotent: true });
+      setDownloadedUri(null);
+      try { notifyDownloadChanged(); } catch {}
+      try {
+        if (Platform.OS === 'android') ToastAndroid.show('Removed offline download', ToastAndroid.SHORT);
+        else Alert.alert('Removed', 'Offline file deleted');
+      } catch {}
+      // If currently loaded from local file, reload from network when available
+      try { if (meditation?.url) await attemptLoad({ retries: 1 }); } catch {}
+    } catch (e) {
+      try {
+        if (Platform.OS === 'android') ToastAndroid.show('Failed to remove', ToastAndroid.SHORT);
+        else Alert.alert('Error', 'Could not delete the file');
+      } catch {}
+    }
+  };
+
+  const startDownload = async () => {
+    if (!meditation?.url) return;
+    try {
+      if (isInsecureHttp(meditation.url)) {
+        setLoadError('This audio uses an insecure http:// URL. Android blocks cleartext downloads. Please use https:// hosting.');
+        try { if (Platform.OS === 'android') ToastAndroid.show('Insecure URL (http) blocked', ToastAndroid.SHORT); } catch {}
+        return;
+      }
+      if (!isOnlineRef.current) {
+        setLoadError('Connect to the internet to download for offline playback.');
+        return;
+      }
+      if (dlProgress !== null) return; // already downloading
+      setDlProgress(0);
+      const dir = `${FileSystem.documentDirectory || ''}meditations`;
+      await ensureDir(dir);
+      const path = getDownloadPath();
+      // First: if we already cached this via Asset (attemptLoad), just copy it
+      try {
+        const cached = assetHandlesRef.current.meditation;
+        const from = cached?.localUri || cached?.uri;
+        if (from) {
+          await FileSystem.copyAsync({ from, to: path });
+          setDownloadedUri(path);
+          setDlProgress(null);
+          try {
+            if (Platform.OS === 'android') ToastAndroid.show('Downloaded for offline', ToastAndroid.SHORT);
+            else Alert.alert('Download complete', 'Available offline');
+          } catch {}
+          if (queuedPlay) {
+            setQueuedPlay(false);
+            await attemptLoad({ retries: 1 });
+            try { player.play(); } catch {}
+          }
+          return;
+        }
+      } catch (errC) {
+        if (DEBUG_AUDIO) console.log('[Download] cache copy failed', String(errC));
+      }
+      // If file already exists, short-circuit
+      try {
+        const info = await FileSystem.getInfoAsync(path);
+        if (info.exists && (info.size ?? 0) > 0) {
+          setDownloadedUri(path);
+          setDlProgress(null);
+          return;
+        }
+      } catch {}
+
+      // Next: fetch via Asset and then copy to persistent storage (works for many hosts)
+      try {
+        const asset = await Asset.fromURI(meditation.url);
+        await asset.downloadAsync();
+        const from = asset.localUri || asset.uri;
+        if (from) {
+          await FileSystem.copyAsync({ from, to: path });
+          setDownloadedUri(path);
+          setDlProgress(null);
+          try {
+            if (Platform.OS === 'android') ToastAndroid.show('Downloaded for offline', ToastAndroid.SHORT);
+            else Alert.alert('Download complete', 'Available offline');
+          } catch {}
+          if (queuedPlay) {
+            setQueuedPlay(false);
+            await attemptLoad({ retries: 1 });
+            try { player.play(); } catch {}
+          }
+          return;
+        }
+      } catch (errA) {
+        if (DEBUG_AUDIO) console.log('[Download] asset copy failed', String(errA));
+      }
+
+      // Attempt simple download (some CDNs prefer this)
+      try {
+        const res = await FileSystem.downloadAsync(meditation.url, path, { headers: { Accept: '*/*' } });
+        if (res?.uri) {
+          setDownloadedUri(res.uri);
+          setDlProgress(null);
+          try {
+            if (Platform.OS === 'android') ToastAndroid.show('Downloaded for offline', ToastAndroid.SHORT);
+            else Alert.alert('Download complete', 'Available offline');
+          } catch {}
+          if (queuedPlay) {
+            setQueuedPlay(false);
+            await attemptLoad({ retries: 1 });
+            try { player.play(); } catch {}
+          }
+          return;
+        }
+      } catch (err0) {
+        if (DEBUG_AUDIO) console.log('[Download] downloadAsync failed', String(err0));
+      }
+      try {
+        const downloadResumable = FileSystem.createDownloadResumable(
+          meditation.url,
+          path,
+          {},
+          (progress) => {
+            const ratio = progress.totalBytesExpectedToWrite
+              ? progress.totalBytesWritten / progress.totalBytesExpectedToWrite
+              : 0;
+            setDlProgress(Math.max(0, Math.min(1, ratio)));
+          }
+        );
+        const result = await downloadResumable.downloadAsync();
+        if (result?.uri) {
+          setDownloadedUri(result.uri);
+          setDlProgress(null);
+          try {
+            if (Platform.OS === 'android') ToastAndroid.show('Downloaded for offline', ToastAndroid.SHORT);
+            else Alert.alert('Download complete', 'Available offline');
+          } catch {}
+          // If user queued play while offline, play now
+          if (queuedPlay) {
+            setQueuedPlay(false);
+            await attemptLoad({ retries: 1 });
+            try { player.play(); } catch {}
+          }
+          return;
+        }
+        // If no URI returned, fall through to fallback
+      } catch (err1) {
+        if (DEBUG_AUDIO) console.log('[Download] primary failed', String(err1));
+      }
+
+      // Fallback: use Expo Asset to fetch and then copy to persistent storage
+      try {
+        const asset = await Asset.fromURI(meditation.url);
+        await asset.downloadAsync();
+        const from = asset.localUri || asset.uri;
+        if (from) {
+          await FileSystem.copyAsync({ from, to: path });
+          setDownloadedUri(path);
+          setDlProgress(null);
+          try {
+            if (Platform.OS === 'android') ToastAndroid.show('Downloaded for offline', ToastAndroid.SHORT);
+            else Alert.alert('Download complete', 'Available offline');
+          } catch {}
+          if (queuedPlay) {
+            setQueuedPlay(false);
+            await attemptLoad({ retries: 1 });
+            try { player.play(); } catch {}
+          }
+          return;
+        }
+      } catch (err2) {
+        if (DEBUG_AUDIO) console.log('[Download] fallback failed', String(err2));
+      }
+
+      // Final fallback: fetch -> base64 -> write
+      try {
+        const res = await fetch(meditation.url, { headers: { Accept: 'audio/*,*/*' } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const buf = await res.arrayBuffer();
+        // Convert to Base64 via crypto-js
+        const u8 = new Uint8Array(buf);
+        const wordArray = CryptoJS.lib.WordArray.create(u8);
+        const b64 = CryptoJS.enc.Base64.stringify(wordArray);
+        await FileSystem.writeAsStringAsync(path, b64, { encoding: FileSystem.EncodingType.Base64 });
+        setDownloadedUri(path);
+        setDlProgress(null);
+        try {
+          if (Platform.OS === 'android') ToastAndroid.show('Downloaded for offline', ToastAndroid.SHORT);
+          else Alert.alert('Download complete', 'Available offline');
+        } catch {}
+        if (queuedPlay) {
+          setQueuedPlay(false);
+          await attemptLoad({ retries: 1 });
+          try { player.play(); } catch {}
+        }
+        return;
+      } catch (err3) {
+        if (DEBUG_AUDIO) console.log('[Download] base64 write failed', String(err3));
+      }
+
+      // If both methods failed
+      setDlProgress(null);
+      try {
+        const msg = 'Download failed';
+        if (Platform.OS === 'android') ToastAndroid.show(msg, ToastAndroid.SHORT);
+        else Alert.alert('Download failed', 'Please try again');
+        setLoadError('Download failed. Please try again.');
+      } catch {}
+    } catch (e) {
+      setDlProgress(null);
+      try {
+        const msg = `Download failed: ${String(e?.message || '')}`.trim();
+        if (Platform.OS === 'android') ToastAndroid.show('Download failed', ToastAndroid.SHORT);
+        else Alert.alert('Download failed', e?.message || 'Please try again');
+        setLoadError(msg);
+      } catch {}
+    }
+  };
+
   // Update the audio source whenever the selected meditation changes
   useEffect(() => {
-    const run = async () => {
-      const url = meditation?.url;
-      if (url) {
-        try {
-          // Try to pre-download and then use local uri to avoid buffering
-          let srcUri = url;
-          try {
-            const asset = await Asset.fromURI(url);
-            await asset.downloadAsync();
-            srcUri = asset.localUri || asset.uri || url;
-          } catch {}
-          player.replace({ uri: srcUri });
-        } catch {}
-      } else {
-        // If switching to no track while a session is running, close and log it
-        if (sessionStartRef.current) {
-          const meta = sessionMetaRef.current || { startTs: sessionStartRef.current, title: meditation?.title, meditationId: meditation?.id, bg: backgroundSound, loopAtStart: loop, bgVolumeAtStart: bgVol, meditationUrl: meditation?.url };
-          await finalizeSession(meta, Date.now());
-          sessionStartRef.current = null;
-        }
-        try { player.remove(); } catch {}
-      }
-    };
-    run();
+    attemptLoad();
   }, [meditation?.url]);
+  // Autoplay last selection on mount if pref enabled and we have a URL
+  useEffect(() => {
+    (async()=>{
+      if(prefs.autoplayLast && meditation?.url){
+        try{
+          const ok = await attemptLoad({ retries: 2 });
+          if(ok) player.play();
+        } catch {}
+      }
+    })();
+  }, [prefs.autoplayLast]);
+
+  // Background/interrupt handling: auto-pause on background, resume if we paused due to background.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', async (state) => {
+      if (state === 'background' || state === 'inactive') {
+        try {
+          wasPlayingRef.current = !!status?.playing;
+          if (status?.playing) {
+            player.pause();
+          }
+          // Persist basic playback state
+          try {
+            const payload = JSON.stringify({ t: status?.currentTime ?? 0, wasPlaying: wasPlayingRef.current, url: meditation?.url || null });
+            await AsyncStorage.setItem(persistKey, payload);
+          } catch {}
+        } catch {}
+      } else if (state === 'active') {
+        // If we previously failed to load due to likely offline, try again on foreground
+        if (loadError && meditation?.url) {
+          await attemptLoad({ retries: 2 });
+        }
+        try {
+          // Restore position if available
+          const raw = await AsyncStorage.getItem(persistKey);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed?.url === meditation?.url && typeof parsed?.t === 'number' && parsed.t > 0.2) {
+              try { await player.seekTo(parsed.t); } catch {}
+            }
+            await AsyncStorage.removeItem(persistKey);
+          }
+        } catch {}
+        if (wasPlayingRef.current && meditation?.url) {
+          try { player.play(); } catch {}
+        }
+        wasPlayingRef.current = false;
+      }
+    });
+    return () => {
+      try { sub?.remove?.(); } catch {}
+    };
+  }, [status?.playing, loadError, meditation?.url]);
+
+  // NetInfo: initialize connectivity, show banner, and retry when connectivity returns
+  useEffect(() => {
+    let mounted = true;
+    // Initialize once
+    NetInfo.fetch().then((state) => {
+      if (!mounted) return;
+      const online = !!state.isConnected; // prefer simple connectivity for banner
+      isOnlineRef.current = online;
+      setIsOnline(online);
+    }).catch(() => {});
+
+    const unsubscribe = NetInfo.addEventListener(async (state) => {
+      const online = !!state.isConnected; // some ROMs leave isInternetReachable null
+      isOnlineRef.current = online;
+      setIsOnline(online);
+      if (!online && meditation?.url) {
+        setLoadError("You're offline. We'll retry when you’re back online.");
+        return;
+      }
+      if (online && meditation?.url) {
+        // Clear offline error immediately; attempt (re)load regardless of prior error
+        if (loadError) setLoadError(null);
+          if (queuedPlayRef.current) {
+            // If user queued play while offline, honor it now
+            try {
+              await attemptLoad({ retries: 2 });
+              await player.play();
+            } catch {}
+            setQueuedPlay(false);
+            queuedPlayRef.current = false;
+          } else if (!loadingRef.current) {
+            await attemptLoad({ retries: 2 });
+          }
+      }
+    });
+    return () => { mounted = false; try { unsubscribe?.(); } catch {} };
+  }, [loadError, meditation?.url]);
+
+  // Periodic persistence of playback position (every ~5s while playing)
+  useEffect(() => {
+    let timer;
+    if (status?.playing) {
+      timer = setInterval(async () => {
+        try {
+          const payload = JSON.stringify({ t: status?.currentTime ?? 0, wasPlaying: true, url: meditation?.url || null });
+          await AsyncStorage.setItem(persistKey, payload);
+        } catch {}
+      }, 5000);
+    }
+    return () => { if (timer) clearInterval(timer); };
+  }, [status?.playing, status?.currentTime, meditation?.url]);
 
   // Log session on unmount if still running
   // Crash recovery: if an active session key exists from previous run, finalize it now
@@ -168,12 +708,16 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
         }
       } catch {}
     })();
+    fetchInsights();
     return () => {
       (async () => {
         if (sessionStartRef.current && sessionMetaRef.current) {
           await finalizeSession(sessionMetaRef.current, Date.now());
           sessionStartRef.current = null;
         }
+        // Proactively release audio resources on unmount
+        try { player.remove(); } catch {}
+        try { ambient.pause(); ambient.seekTo(0); } catch {}
       })();
     };
   }, []);
@@ -202,6 +746,12 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
         sessionStartRef.current = null;
       }
     } else {
+      // If offline and not downloaded, queue play and attempt download
+      if (!isOnlineRef.current && !downloadedUri) {
+        setQueuedPlay(true);
+        await startDownload();
+        return;
+      }
       // If we're at or near the end, reset to start for replay
       try {
         if (duration > 0 && progress >= Math.max(0, duration - 0.25)) {
@@ -325,6 +875,21 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
 
   return (
     <View style={styles.controls}>
+      {!isOnline && (
+        <Text style={{ color: theme.textMuted, marginBottom: 6 }} accessibilityLiveRegion="polite">
+          You're offline.
+        </Text>
+      )}
+      {!meditation?.url && (
+        <Text style={{ color: theme.textMuted, marginBottom: 6 }}>
+          Select a meditation from the list to begin.
+        </Text>
+      )}
+      {dlProgress !== null && (
+        <Text style={{ color: theme.textMuted, marginBottom: 6 }}>
+          Downloading… {Math.round((dlProgress || 0) * 100)}%
+        </Text>
+      )}
       <GlowingPlayButton
         playing={playing}
         onPress={handlePlayPause}
@@ -341,6 +906,28 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
         >
           Buffering…
         </Text>
+      )}
+      {/* Insights banner */}
+      <View style={{ marginTop: 6, alignItems: 'center' }}>
+        <Text style={{ color: theme.textMuted, fontSize: 12 }}>
+          {insightsLoading ? 'Loading your weekly stats…' : `This week: ${weeklyMinutes} min • ${streakDays}-day streak`}
+        </Text>
+        {(todayMinutes < DAILY_GOAL_MIN) && (
+          <Text style={{ color: theme.textMuted, fontSize: 12, marginTop: 4 }}>Today: {todayMinutes}m • {DAILY_GOAL_MIN - todayMinutes}m to goal</Text>
+        )}
+      </View>
+      {!!loadError && (
+        <View style={{ alignItems: 'center', marginTop: 6 }}>
+          <Text style={{ color: theme.text, textAlign: 'center' }}>{loadError}</Text>
+          <TouchableOpacity
+            onPress={() => { selection(); attemptLoad(); }}
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading audio"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={{ color: theme.primary, fontWeight: '700', marginTop: 4 }}>Retry</Text>
+          </TouchableOpacity>
+        </View>
       )}
       <View style={{ width:'90%', flexDirection:'row', justifyContent:'space-between' }}>
         <View><Text style={{ color: theme.text, fontWeight:'700' }}>{fmtTime(progress)}</Text></View>
@@ -423,6 +1010,32 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
           <Text style={[styles.loopText, { color: loop ? (theme.primaryContrast || '#fff') : theme.text, fontWeight:'700' }]}>{loop ? 'Loop: On' : 'Loop: Off'}</Text>
         </TouchableOpacity>
       </Animated.View>
+      {/* Download for offline */}
+      {meditation?.url && !downloadedUri && (
+        <TouchableOpacity
+          onPress={() => { if (dlProgress === null) { selection(); startDownload(); } }}
+          accessibilityRole="button"
+          accessibilityLabel="Download for offline playback"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={[styles.loopBtn, { backgroundColor: theme.card, opacity: dlProgress !== null ? 0.6 : 1 }]}
+        >
+          <Text style={[styles.loopText, { color: theme.text, fontWeight:'700' }]}>Download for offline</Text>
+        </TouchableOpacity>
+      )}
+      {downloadedUri && (
+        <View style={{ alignItems:'center', marginTop: 6 }}>
+          <Text style={{ color: theme.textMuted }}>Available offline</Text>
+          <TouchableOpacity
+            onPress={() => { selection(); removeDownload(); }}
+            accessibilityRole="button"
+            accessibilityLabel="Remove downloaded file"
+            style={[styles.loopBtn, { backgroundColor: theme.card, marginTop: 6 }]}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={[styles.loopText, { color: theme.text, fontWeight:'700' }]}>Remove download</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }

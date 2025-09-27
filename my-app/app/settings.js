@@ -12,6 +12,8 @@ import { exportAllMoodEntries, exportMoodEntriesBetween, buildMoodCSV, buildMood
 import { getUserProfile, updateUserProfile, ensureUserProfile, deleteUserProfile } from '../src/services/userProfile';
 import { bumpSessionEpoch } from '../src/services/userProfile';
 import { getHapticsEnabled, setHapticsEnabled, initHapticsPref } from '../src/utils/haptics';
+import { getDefaultBg, setDefaultBg, getAutoplayLast, setAutoplayLast, getKeepAwake, setKeepAwake, getAutoPauseOnCall, setAutoPauseOnCall, getDailyReminderTime, setDailyReminderTime, getQuietHours, setQuietHours } from '../src/utils/playerPrefs';
+import { requestLocalNotificationPermissions, scheduleLocalNotification, cancelAllLocalNotifications } from '../src/notifications';
 import * as ImagePicker from 'expo-image-picker';
 import { DeviceEventEmitter as RNEmitter } from 'react-native';
 import * as FileSystem from 'expo-file-system';
@@ -90,6 +92,14 @@ export default function SettingsScreen() {
   const [retentionDays, setRetentionDaysState] = useState(0); // 0 = disabled
   const [purging, setPurging] = useState(false);
   const [cfg, setCfg] = useState({ allowExports:true, allowRetention:true, allowBackfillTools:false });
+  // Player preferences
+  const [prefDefaultBg, setPrefDefaultBg] = useState('none');
+  const [prefAutoplayLast, setPrefAutoplayLast] = useState(false);
+  const [prefKeepAwake, setPrefKeepAwake] = useState(false);
+  const [prefAutoPauseOnCall, setPrefAutoPauseOnCall] = useState(true);
+  // Reminders
+  const [dailyTime, setDailyTime] = useState(''); // 'HH:MM' or '' = off
+  const [quiet, setQuiet] = useState({ start:'', end:'' });
 
   // ===== Key Escrow Handlers =====
   const handleCreateEscrow = async () => {
@@ -143,6 +153,13 @@ export default function SettingsScreen() {
   try { await ensureUserProfile(); const prof = await getUserProfile(); if(prof){ setDisplayName(prof.displayName || ''); if(typeof prof.biometricEnabled === 'boolean') setBiometricPref(prof.biometricEnabled); if(prof.avatarB64) setAvatarB64(prof.avatarB64); if(prof.themeMode==='dark'||prof.themeMode==='light'){ setThemeModeLocal(prof.themeMode); } if(typeof prof.analyticsOptOut === 'boolean') setAnalyticsOptOut(prof.analyticsOptOut); if('termsAcceptedVersion' in prof) setTermsAcceptedVersion(prof.termsAcceptedVersion); if('privacyAcceptedAt' in prof) setPrivacyAcceptedAt(prof.privacyAcceptedAt); } } catch {}
   try { const ts = await AsyncStorage.getItem('last_remote_wipe_ts'); if(ts) setLastRemoteWipe(Number(ts)); } catch {}
   try { const r = await getRetentionDays(); setRetentionDaysState(r||0); } catch {}
+  // Load player prefs & reminders
+  try { setPrefDefaultBg(await getDefaultBg()); } catch {}
+  try { setPrefAutoplayLast(await getAutoplayLast()); } catch {}
+  try { setPrefKeepAwake(await getKeepAwake()); } catch {}
+  try { setPrefAutoPauseOnCall(await getAutoPauseOnCall()); } catch {}
+  try { setDailyTime(await getDailyReminderTime()); } catch {}
+  try { setQuiet(await getQuietHours()); } catch {}
   })(); },[]);
   // Subscribe to admin config
   useEffect(()=>{
@@ -173,6 +190,29 @@ export default function SettingsScreen() {
       Alert.alert("Error", e.message);
     }
   };
+
+  // ===== Notifications / Reminders =====
+  async function ensureNotifPerms(){
+    return requestLocalNotificationPermissions();
+  }
+  async function scheduleDailyReminder(hhmm){
+    // Clear previous to avoid duplicates; simple global cancel to keep patch small
+    try { await cancelAllLocalNotifications(); } catch {}
+    if(!hhmm) return; // off
+    if(!await ensureNotifPerms()) { Alert.alert('Notifications','Permission not granted'); return; }
+    const [h,m] = hhmm.split(':').map(n=> parseInt(n,10));
+    try {
+      await scheduleLocalNotification({ title: 'Time to unwind', body: 'Take a few minutes to meditate today.', hour: h, minute: m });
+    } catch(e){ Alert.alert('Reminder Failed', e.message); }
+  }
+  const saveDailyTime = async (hhmm) => { setDailyTime(hhmm); await setDailyReminderTime(hhmm); await scheduleDailyReminder(hhmm); };
+  const saveQuiet = async (start,end) => { const s=start||''; const e=end||''; setQuiet({ start:s, end:e }); await setQuietHours(s,e); };
+
+  // ===== Player Prefs Handlers =====
+  const saveDefaultBg = async (val) => { setPrefDefaultBg(val); await setDefaultBg(val); };
+  const saveAutoplayLast = async (val) => { setPrefAutoplayLast(val); await setAutoplayLast(val); };
+  const saveKeepAwake = async (val) => { setPrefKeepAwake(val); await setKeepAwake(val); };
+  const saveAutoPauseOnCall = async (val) => { setPrefAutoPauseOnCall(val); await setAutoPauseOnCall(val); };
 
   // ===== Helper / Capability Checks =====
   const canEmailPassword = () => {
@@ -558,6 +598,14 @@ export default function SettingsScreen() {
       ] : [ { key:'noPass', type:'note', text:'Password & account management unavailable for this sign-in method.' } ]
     },
     {
+      title: 'Player Preferences',
+      data: [ { key:'playerPrefs', type:'playerPrefs' } ]
+    },
+    {
+      title: 'Reminders',
+      data: [ { key:'reminders', type:'reminders' } ]
+    },
+    {
       title: 'Privacy & Data',
       data: [
         { key:'localOnly', type:'toggle', label:'Local-Only Mode', value: localOnly, onValueChange: toggleLocalOnly },
@@ -601,6 +649,62 @@ export default function SettingsScreen() {
   ].filter(Boolean);
 
   const renderItem = ({ item }) => {
+    if(item.type === 'playerPrefs'){
+      return (
+        <View style={styles.itemRow}>
+          <View style={styles.rowBetweenMul}>
+            <Text style={styles.label}>Default background</Text>
+            <View style={styles.inlineOptions}>
+              {['none','rain','ocean'].map(opt => (
+                <TouchableOpacity key={opt} onPress={()=> saveDefaultBg(opt)} style={[styles.intervalChip, prefDefaultBg===opt && styles.intervalChipActive]} accessibilityRole='button' accessibilityState={{ selected: prefDefaultBg===opt }} accessibilityLabel={`Default background ${opt}`}>
+                  <Text style={[styles.intervalChipText, prefDefaultBg===opt && styles.intervalChipTextActive]}>{opt}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+          <View style={styles.rowBetween}>
+            <Text style={styles.label}>Autoplay last selection</Text>
+            <Switch value={!!prefAutoplayLast} onValueChange={saveAutoplayLast} />
+          </View>
+          <View style={styles.rowBetween}>
+            <Text style={styles.label}>Keep screen awake</Text>
+            <Switch value={!!prefKeepAwake} onValueChange={saveKeepAwake} />
+          </View>
+          <View style={styles.rowBetween}>
+            <Text style={styles.label}>Auto-pause on call</Text>
+            <Switch value={!!prefAutoPauseOnCall} onValueChange={saveAutoPauseOnCall} />
+          </View>
+        </View>
+      );
+    }
+    if(item.type === 'reminders'){
+      const currentQuiet = quiet.start ? `${quiet.start}-${quiet.end}` : 'Off';
+      return (
+        <View style={styles.itemRow}>
+          <View style={styles.rowBetweenMul}>
+            <Text style={styles.label}>Daily reminder</Text>
+            <View style={styles.inlineOptions}>
+              {['07:00','12:00','20:00',''].map(t => (
+                <TouchableOpacity key={t||'Off'} onPress={()=> saveDailyTime(t)} style={[styles.intervalChip, (dailyTime===t) && styles.intervalChipActive]} accessibilityRole='button' accessibilityState={{ selected: dailyTime===t }} accessibilityLabel={`Daily reminder ${t||'Off'}`}>
+                  <Text style={[styles.intervalChipText, (dailyTime===t) && styles.intervalChipTextActive]}>{t||'Off'}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+          <View style={[styles.rowBetweenMul, { marginTop:8 }]}>
+            <Text style={styles.label}>Quiet hours</Text>
+            <View style={styles.inlineOptions}>
+              {['22:00-07:00','21:00-06:00','Off'].map(opt => (
+                <TouchableOpacity key={opt} onPress={()=> { if(opt==='Off') saveQuiet('',''); else { const [s,e]=opt.split('-'); saveQuiet(s,e); } }} style={[styles.intervalChip, (currentQuiet===opt) && styles.intervalChipActive]} accessibilityRole='button' accessibilityState={{ selected: currentQuiet===opt }} accessibilityLabel={`Quiet hours ${opt}`}>
+                  <Text style={[styles.intervalChipText, (currentQuiet===opt) && styles.intervalChipTextActive]}>{opt}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+          <Text style={styles.noteText}>Reminders respect your device focus settings. Quiet hours are stored for future goal nudges.</Text>
+        </View>
+      );
+    }
     if(item.type === 'retention'){
       return (
         <View style={styles.itemRow}>

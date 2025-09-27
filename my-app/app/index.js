@@ -14,7 +14,7 @@ import { subscribeAdminConfig, getAdminConfig } from "../src/services/config";
 import { auth, db } from "../firebase/firebaseConfig";
 import { evaluateStreakBadges, listUserBadges, badgeEmoji } from "../src/badges";
 import Sparkline from "../src/components/Sparkline";
-import { collection, query, where, orderBy, onSnapshot, Timestamp } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, Timestamp, getDocs } from 'firebase/firestore';
 import * as Haptics from 'expo-haptics';
 import LottieView from 'lottie-react-native';
 import { useFocusEffect } from 'expo-router';
@@ -35,6 +35,8 @@ export default function HomeScreen() {
   const [moodSeries, setMoodSeries] = useState([]);
   const todayHeaderRef = useRef(null);
   const [cfg, setCfg] = useState({ allowExports:true, allowRetention:true, allowBackfillTools:false, allowMeditations:true, allowPlans:true, allowCommunity:true });
+  const [todayMinutes, setTodayMinutes] = useState(0);
+  const DAILY_GOAL_MIN = 10; // simple default goal
 
   const greeting = () => {
     const h = new Date().getHours();
@@ -94,6 +96,21 @@ export default function HomeScreen() {
         }
       }
     } catch { setTrendText(''); }
+    // Compute today's meditation minutes from sessions collection (if available)
+    try {
+      const uid = auth.currentUser?.uid; if(uid){
+        const start = new Date(); start.setHours(0,0,0,0);
+        const end = new Date(); end.setHours(23,59,59,999);
+        const qRef = query(
+          collection(db, `users/${uid}/sessions`),
+          where('endedAt','>=', Timestamp.fromDate(start)),
+          where('endedAt','<=', Timestamp.fromDate(end))
+        );
+        const snap = await getDocs(qRef);
+        let totalSec = 0; snap.forEach(d=> { const v = d.data().durationSec; if(Number.isFinite(v)) totalSec += v; });
+        setTodayMinutes(Math.round(totalSec/60));
+      }
+    } catch {}
     if(opts.showSpinner) setLoading(false);
     return () => { mounted = false; };
   };
@@ -355,10 +372,12 @@ export default function HomeScreen() {
                       <Text style={[styles.linkBtnTxt,{ color: mode==='dark' ? '#E3F2FD' : '#0277BD' }]} >Log</Text>
                     </TouchableOpacity>
                   </View>
-                  <View style={styles.snapshotRow}>
-                    <Ionicons name="flame-outline" size={20} color={summary.streak>0? '#FF7043': theme.textMuted} />
-                    <Text accessibilityLabel={summary.streak>0? `${summary.streak} day streak` : 'No streak yet'} style={[styles.snapshotText, { color: theme.text }]}>{summary.streak>0? `${summary.streak}-day streak` : 'No streak yet'}</Text>
-                  </View>
+                  <Pressable onPress={()=> navigate({ pathname:'/sessions', params:{ days: 7 } }, 'light')} accessibilityRole='button' accessibilityLabel='Open sessions from last 7 days'>
+                    <View style={styles.snapshotRow}>
+                      <Ionicons name="flame-outline" size={20} color={summary.streak>0? '#FF7043': theme.textMuted} />
+                      <Text accessibilityLabel={summary.streak>0? `${summary.streak} day streak` : 'No streak yet'} style={[styles.snapshotText, { color: theme.text }]}>{summary.streak>0? `${summary.streak}-day streak` : 'No streak yet'}</Text>
+                    </View>
+                  </Pressable>
                 </>
               )}
             </>
@@ -380,6 +399,20 @@ export default function HomeScreen() {
             {!!(moodSeries && moodSeries.length >= 2) && (
               <Sparkline data={moodSeries} color={theme.primary} height={36} animate duration={420} />
             )}
+          </Card>
+        )}
+        {(todayMinutes < DAILY_GOAL_MIN) && (
+          <Card style={{ padding:12, marginBottom: spacing.sm }}>
+            <View style={{ flexDirection:'row', alignItems:'center', justifyContent:'space-between' }}>
+              <View style={{ flex:1, paddingRight:8 }}>
+                <Text style={[styles.snapshotSub,{ color: theme.text }]}>
+                  {todayMinutes>0 ? `Today: ${todayMinutes}m • ${DAILY_GOAL_MIN - todayMinutes}m to goal` : `No meditation yet today • Goal ${DAILY_GOAL_MIN}m`}
+                </Text>
+              </View>
+              <Pressable style={[styles.linkBtn,{ backgroundColor: theme.bg === '#0B1722' ? '#1b2b3b' : '#E3F2FD' }]} onPress={()=> navigate('/meditation','medium')} accessibilityLabel='Start a short session'>
+                <Text style={[styles.linkBtnTxt,{ color: mode==='dark' ? '#E3F2FD' : '#0277BD' }]}>Start</Text>
+              </Pressable>
+            </View>
           </Card>
         )}
         <View style={styles.quickGrid}>

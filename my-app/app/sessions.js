@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../firebase/firebaseConfig';
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { colors, spacing } from '../src/theme';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,10 +21,35 @@ export default function SessionsScreen() {
   const [items, setItems] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [bgFilter, setBgFilter] = useState('all');
-  const [range] = useState({ days: 30 });
+  const [range, setRange] = useState({ days: 30 });
   const [initialLoading, setInitialLoading] = useState(true);
   const fade = React.useRef(new Animated.Value(0)).current;
   const router = useRouter();
+  const params = useLocalSearchParams();
+
+  // Initialize filters from query params (e.g., /sessions?days=7&bg=rain)
+  const { days: qDays, bg: qBg } = params || {};
+  useEffect(() => {
+    // Parse days and update only if different
+    try {
+      if (qDays != null) {
+        const d = parseInt(String(qDays), 10);
+        if (Number.isFinite(d) && d > 0 && range?.days !== d) {
+          setRange({ days: d });
+        }
+      }
+    } catch {}
+    // Parse bg and update only if different
+    try {
+      if (qBg != null) {
+        const next = String(qBg).toLowerCase();
+        if (next && next !== bgFilter) {
+          setBgFilter(next);
+        }
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qDays, qBg]);
 
   useEffect(() => {
     const user = auth.currentUser;
