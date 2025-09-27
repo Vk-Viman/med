@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, RefreshControl, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, FlatList, StyleSheet, RefreshControl, TouchableOpacity, Alert, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../firebase/firebaseConfig';
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
@@ -22,6 +22,8 @@ export default function SessionsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [bgFilter, setBgFilter] = useState('all');
   const [range] = useState({ days: 30 });
+  const [initialLoading, setInitialLoading] = useState(true);
+  const fade = React.useRef(new Animated.Value(0)).current;
   const router = useRouter();
 
   useEffect(() => {
@@ -35,6 +37,10 @@ export default function SessionsScreen() {
       const list = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() }));
       setItems(list);
+      if (initialLoading) {
+        setInitialLoading(false);
+        Animated.timing(fade, { toValue: 1, duration: 260, useNativeDriver: true }).start();
+      }
     });
     return () => unsub();
   }, []);
@@ -248,14 +254,27 @@ export default function SessionsScreen() {
         </View>
       </View>
 
-      <FlatList
-        data={filtered}
-        keyExtractor={(it) => it.id}
-        renderItem={renderItem}
-        ItemSeparatorComponent={() => <View style={styles.sep} />}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        ListEmptyComponent={<Text style={styles.empty}>No sessions yet</Text>}
-      />
+      {initialLoading ? (
+        <View>
+          {[...Array(5)].map((_, i) => (
+            <View key={i} style={styles.skelRow}>
+              <View style={styles.skelTitle} />
+              <View style={styles.skelMeta} />
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Animated.View style={{ opacity: fade }}>
+          <FlatList
+            data={filtered}
+            keyExtractor={(it) => it.id}
+            renderItem={renderItem}
+            ItemSeparatorComponent={() => <View style={styles.sep} />}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+            ListEmptyComponent={<Text style={styles.empty}>No sessions yet</Text>}
+          />
+        </Animated.View>
+      )}
     </SafeAreaView>
   );
 }
@@ -275,6 +294,9 @@ const styles = StyleSheet.create({
   meta: { color: colors.mutedText || '#607D8B', fontSize: 12 },
   date: { color: colors.mutedText || '#78909C', fontSize: 12, textAlign: 'right' },
   empty: { color: colors.mutedText || '#90A4AE' },
+  skelRow: { paddingVertical: spacing.sm },
+  skelTitle: { height: 16, backgroundColor: '#ECEFF1', borderRadius: 6, width: '50%', marginBottom: 6 },
+  skelMeta: { height: 12, backgroundColor: '#ECEFF1', borderRadius: 6, width: '35%' },
   summaryRow: { flexDirection: 'row', gap: 8, marginBottom: spacing.md },
   pill: { backgroundColor: '#E0F2F1', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6 },
   pillText: { color: '#006064', fontWeight: '700', fontSize: 12 },

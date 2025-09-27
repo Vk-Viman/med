@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Alert, Platform, ToastAndroid, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, Alert, Platform, ToastAndroid, TouchableOpacity, Animated, Easing } from "react-native";
 import * as Application from 'expo-application';
 import GlowingPlayButton from "./GlowingPlayButton";
 import Slider from "@react-native-community/slider";
@@ -10,6 +10,7 @@ import { auth, db } from "../../firebase/firebaseConfig";
 import { collection, doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 import { updateUserStats } from "../badges";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useTheme } from "../theme/ThemeProvider";
 
 const BG_SOURCES = {
   none: null,
@@ -19,6 +20,7 @@ const BG_SOURCES = {
 };
 
 export default function PlayerControls({ meditation, backgroundSound, disabled }) {
+  const { theme } = useTheme();
   // Create a single player instance for this component
   const player = useAudioPlayer(null, { updateInterval: 250, downloadFirst: true });
   const status = useAudioPlayerStatus(player);
@@ -32,6 +34,30 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
   const activeKey = `@med:activeSession:${uid}`;
   const ambientCacheRef = useRef({});
   const sessionMetaRef = useRef(null);
+  const skipLeftScale = useRef(new Animated.Value(1)).current;
+  const skipRightScale = useRef(new Animated.Value(1)).current;
+  const loopScale = useRef(new Animated.Value(1)).current;
+
+  // Helper: quick press animation for buttons (scale down then spring back)
+  const pressAnim = (animatedValue) => {
+    if (!animatedValue) return;
+    try {
+      Animated.sequence([
+        Animated.timing(animatedValue, {
+          toValue: 0.92,
+          duration: 90,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.spring(animatedValue, {
+          toValue: 1,
+          friction: 5,
+          tension: 150,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } catch {}
+  };
 
   const fmtTime = (sec) => {
     const s = Math.max(0, Math.floor(sec || 0));
@@ -162,6 +188,9 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
   const progress = status?.currentTime ?? 0;
   const duration = status?.duration && status.duration > 0 ? status.duration : 1;
   const isBuffering = !!status?.isBuffering || !status?.isLoaded;
+
+  // Accessibility: announce buffering politely for screen readers
+  const bufferingLabel = isBuffering ? 'Buffering audio' : undefined;
 
   const handlePlayPause = async () => {
     if (!meditation?.url) return;
@@ -296,21 +325,48 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
 
   return (
     <View style={styles.controls}>
-      <GlowingPlayButton playing={playing} onPress={handlePlayPause} disabled={disabled || !meditation?.url || isBuffering} />
+      <GlowingPlayButton
+        playing={playing}
+        onPress={handlePlayPause}
+        disabled={disabled || !meditation?.url || isBuffering}
+        accessibilityRole="button"
+        accessibilityLabel={playing ? 'Pause meditation' : 'Play meditation'}
+        accessibilityHint={playing ? 'Pauses the current meditation' : 'Plays the selected meditation'}
+      />
       {isBuffering && (
-        <Text style={{ color:'#607D8B', marginTop: 6 }}>Buffering…</Text>
+        <Text
+          style={{ color: theme.textMuted, marginTop: 6 }}
+          accessibilityLiveRegion="polite"
+          accessibilityLabel="Buffering audio"
+        >
+          Buffering…
+        </Text>
       )}
       <View style={{ width:'90%', flexDirection:'row', justifyContent:'space-between' }}>
-        <View><Text style={{ color:'#01579B', fontWeight:'700' }}>{fmtTime(progress)}</Text></View>
-        <View><Text style={{ color:'#01579B', fontWeight:'700' }}>{fmtTime(duration)}</Text></View>
+        <View><Text style={{ color: theme.text, fontWeight:'700' }}>{fmtTime(progress)}</Text></View>
+        <View><Text style={{ color: theme.text, fontWeight:'700' }}>{fmtTime(duration)}</Text></View>
       </View>
       <View style={{ width:'90%', flexDirection:'row', justifyContent:'space-between', marginTop: 6 }}>
-        <TouchableOpacity onPress={() => skipBy(-15)} accessibilityRole="button" accessibilityLabel="Skip back 15 seconds">
-          <Text style={styles.skipBtn}>{"⟲ 15s"}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => skipBy(15)} accessibilityRole="button" accessibilityLabel="Skip forward 15 seconds">
-          <Text style={styles.skipBtn}>{"15s ⟳"}</Text>
-        </TouchableOpacity>
+        <Animated.View style={{ transform: [{ scale: skipLeftScale }] }}>
+          <TouchableOpacity
+            onPress={() => { pressAnim(skipLeftScale); selection(); skipBy(-15); }}
+            accessibilityRole="button"
+            accessibilityLabel="Skip back 15 seconds"
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={[styles.skipBtn, { color: theme.text }]}>{"⟲ 15s"}</Text>
+          </TouchableOpacity>
+        </Animated.View>
+        <Animated.View style={{ transform: [{ scale: skipRightScale }] }}>
+          <TouchableOpacity
+            onPress={() => { pressAnim(skipRightScale); selection(); skipBy(15); }}
+            accessibilityRole="button"
+            accessibilityLabel="Skip forward 15 seconds"
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={[styles.skipBtn, { color: theme.text }]}>{"15s ⟳"}</Text>
+          </TouchableOpacity>
+        </Animated.View>
       </View>
       <Slider
         style={styles.slider}
@@ -328,33 +384,45 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
           }
         }}
         onSlidingComplete={(v) => { player.seekTo(v); impact('light'); }}
-        minimumTrackTintColor="#7C4DFF"
-        maximumTrackTintColor="#B3E5FC"
-        thumbTintColor="#7C4DFF"
+        minimumTrackTintColor={theme.primary}
+        maximumTrackTintColor={theme.textMuted}
+        thumbTintColor={theme.primary}
         disabled={disabled || !meditation?.url || isBuffering}
+        accessibilityRole="adjustable"
+        accessibilityLabel="Playback position"
+        accessibilityValue={{ min: 0, max: Math.max(1, Math.floor(duration)), now: Math.floor(progress) }}
+        accessibilityHint="Swipe up or down to adjust the playback position"
       />
       {/* Background volume control */}
       <View style={{ width: '90%', marginTop: 8 }}>
-        <Text style={{ color:'#006064', fontWeight:'700', marginBottom: 4 }}>Background Volume</Text>
+        <Text style={{ color: theme.text, fontWeight:'700', marginBottom: 4 }}>Background Volume</Text>
         <Slider
           style={{ width: '100%', height: 32 }}
           minimumValue={0}
           maximumValue={1}
           value={bgVol}
           onValueChange={v => setBgVol(v)}
-          minimumTrackTintColor="#26A69A"
-          maximumTrackTintColor="#B2DFDB"
-          thumbTintColor="#26A69A"
+          minimumTrackTintColor={theme.primary}
+          maximumTrackTintColor={theme.textMuted}
+          thumbTintColor={theme.primary}
+          accessibilityRole="adjustable"
+          accessibilityLabel="Background sound volume"
+          accessibilityValue={{ min: 0, max: 1, now: Number(bgVol.toFixed(2)) }}
+          accessibilityHint="Swipe up or down to adjust background volume"
         />
       </View>
-      <TouchableOpacity
-        onPress={() => setLoop((x) => !x)}
-        style={[styles.loopBtn, loop && styles.loopBtnActive]}
-        accessibilityRole="button"
-        accessibilityLabel={loop ? 'Disable loop' : 'Enable loop'}
-      >
-        <Text style={[styles.loopText, loop && styles.loopTextActive]}>{loop ? 'Loop: On' : 'Loop: Off'}</Text>
-      </TouchableOpacity>
+      <Animated.View style={{ transform: [{ scale: loopScale }] }}>
+        <TouchableOpacity
+          onPress={() => { pressAnim(loopScale); selection(); setLoop((x) => !x); }}
+          style={[styles.loopBtn, { backgroundColor: theme.card }, loop && { backgroundColor: theme.primary }]}
+          accessibilityRole="button"
+          accessibilityLabel={loop ? 'Disable loop' : 'Enable loop'}
+          accessibilityHint={loop ? 'Stop repeating the track' : 'Repeat the track when it ends'}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={[styles.loopText, { color: loop ? (theme.primaryContrast || '#fff') : theme.text, fontWeight:'700' }]}>{loop ? 'Loop: On' : 'Loop: Off'}</Text>
+        </TouchableOpacity>
+      </Animated.View>
     </View>
   );
 }
@@ -362,9 +430,9 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
 const styles = StyleSheet.create({
   controls: { alignItems: "center", marginBottom: 20 },
   slider: { width: "90%", height: 36, marginTop: 18 },
-  skipBtn: { color: '#006064', fontWeight: '800' },
-  loopBtn: { marginTop: 10, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14, backgroundColor: '#E0F2F1' },
-  loopBtnActive: { backgroundColor: '#80DEEA' },
-  loopText: { color: '#006064', fontWeight: '700' },
-  loopTextActive: { color: '#004D40' },
+  skipBtn: { fontWeight: '800' },
+  loopBtn: { marginTop: 10, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14 },
+  loopBtnActive: {},
+  loopText: {},
+  loopTextActive: {},
 });
