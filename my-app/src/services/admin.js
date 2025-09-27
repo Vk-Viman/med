@@ -58,6 +58,15 @@ export async function deleteMeditation(id){
   await deleteDoc(doc(db, `admin_meditations/${id}`));
 }
 
+// Fetch single meditation by ID (for Replay-by-ID)
+export async function getMeditationById(id){
+  if(!id) return null;
+  try {
+    const s = await getDoc(doc(db, `admin_meditations/${id}`));
+    return s.exists()? { id: s.id, ...s.data() } : null;
+  } catch { return null; }
+}
+
 // PLANS (collection: admin_plans)
 export async function listPlanTemplates(){
   const snap = await getDocs(query(collection(db, 'admin_plans'), orderBy('createdAt','desc')));

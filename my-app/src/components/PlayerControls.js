@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Alert, Platform, ToastAndroid, TouchableOpacity } from "react-native";
+import * as Application from 'expo-application';
 import GlowingPlayButton from "./GlowingPlayButton";
 import Slider from "@react-native-community/slider";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { Asset } from "expo-asset";
-import * as Haptics from "expo-haptics";
+import { impact, selection } from "../utils/haptics";
 import { auth, db } from "../../firebase/firebaseConfig";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 import { updateUserStats } from "../badges";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -28,7 +29,9 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
   const [bgVol, setBgVol] = useState(0.35);
   const uid = auth.currentUser?.uid || "local";
   const volKey = `@med:bgVol:${uid}`;
+  const activeKey = `@med:activeSession:${uid}`;
   const ambientCacheRef = useRef({});
+  const sessionMetaRef = useRef(null);
 
   const fmtTime = (sec) => {
     const s = Math.max(0, Math.floor(sec || 0));
@@ -40,9 +43,46 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
   const notifySaved = (elapsedSec) => {
     const minutes = Math.round((elapsedSec / 60) * 10) / 10;
     const msg = `Session saved: ${minutes}m`;
-    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+    impact('light');
     if (Platform.OS === "android") ToastAndroid.show(msg, ToastAndroid.SHORT);
     else Alert.alert("Saved", msg);
+  };
+
+  // Finalize and persist a session safely (idempotent by docId)
+  const finalizeSession = async ({ startTs, title, meditationId, bg, loopAtStart, bgVolumeAtStart, meditationUrl }, endTs = Date.now()) => {
+    if (!auth.currentUser) return; // only log for signed-in users
+    const elapsedSec = Math.max(0, Math.round((endTs - startTs) / 1000));
+    if (elapsedSec < 5) { // ignore super short
+      try { await AsyncStorage.removeItem(activeKey); } catch {}
+      return;
+    }
+    try {
+      const sid = `${auth.currentUser.uid}-${startTs}`;
+      const ref = doc(collection(db, "users", auth.currentUser.uid, "sessions"), sid);
+      const snap = await getDoc(ref);
+      // If already ended, do nothing (prevents duplicates)
+      if (snap.exists() && snap.data()?.endedAt) {
+        try { await AsyncStorage.removeItem(activeKey); } catch {}
+        return;
+      }
+      await setDoc(ref, {
+        durationSec: elapsedSec,
+        endedAt: serverTimestamp(),
+        title: title || meditation?.title || "session",
+        meditationId: meditationId || meditation?.id || meditation?.docId || null,
+        backgroundSound: bg ?? backgroundSound ?? null,
+        loopAtStart: typeof loopAtStart === 'boolean' ? loopAtStart : loop,
+        bgVolumeAtStart: typeof bgVolumeAtStart === 'number' ? bgVolumeAtStart : bgVol,
+        meditationUrl: meditationUrl || meditation?.url || null,
+        deviceOS: Platform.OS,
+        deviceOSVersion: String(Platform.Version ?? ''),
+        appVersion: Application?.applicationVersion || Application?.nativeApplicationVersion || null,
+      }, { merge: true });
+      // Update stats once per session (only when we set it for the first time)
+      await updateUserStats(auth.currentUser.uid, { minutesDelta: Math.round(elapsedSec / 60) });
+      notifySaved(elapsedSec);
+    } catch {}
+    try { await AsyncStorage.removeItem(activeKey); } catch {}
   };
 
   // Prefetch ambient sources once to reduce switch/buffer time
@@ -80,20 +120,9 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
       } else {
         // If switching to no track while a session is running, close and log it
         if (sessionStartRef.current) {
-          const end = Date.now();
-          const elapsedSec = Math.max(0, Math.round((end - sessionStartRef.current) / 1000));
+          const meta = sessionMetaRef.current || { startTs: sessionStartRef.current, title: meditation?.title, meditationId: meditation?.id, bg: backgroundSound, loopAtStart: loop, bgVolumeAtStart: bgVol, meditationUrl: meditation?.url };
+          await finalizeSession(meta, Date.now());
           sessionStartRef.current = null;
-          if (elapsedSec >= 5 && auth.currentUser) {
-            try {
-              await addDoc(collection(db, "users", auth.currentUser.uid, "sessions"), {
-                durationSec: elapsedSec,
-                endedAt: serverTimestamp(),
-                title: meditation?.title || "session",
-              });
-              await updateUserStats(auth.currentUser.uid, { minutesDelta: Math.round(elapsedSec / 60) });
-              notifySaved(elapsedSec);
-            } catch {}
-          }
         }
         try { player.remove(); } catch {}
       }
@@ -102,23 +131,22 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
   }, [meditation?.url]);
 
   // Log session on unmount if still running
+  // Crash recovery: if an active session key exists from previous run, finalize it now
   useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(activeKey);
+        if (raw && auth.currentUser) {
+          const meta = JSON.parse(raw);
+          await finalizeSession(meta, Date.now());
+        }
+      } catch {}
+    })();
     return () => {
       (async () => {
-        if (sessionStartRef.current && auth.currentUser) {
-          const end = Date.now();
-          const elapsedSec = Math.max(0, Math.round((end - sessionStartRef.current) / 1000));
+        if (sessionStartRef.current && sessionMetaRef.current) {
+          await finalizeSession(sessionMetaRef.current, Date.now());
           sessionStartRef.current = null;
-          if (elapsedSec >= 5) {
-            try {
-              await addDoc(collection(db, "users", auth.currentUser.uid, "sessions"), {
-                durationSec: elapsedSec,
-                endedAt: serverTimestamp(),
-                title: meditation?.title || "session",
-              });
-              await updateUserStats(auth.currentUser.uid, { minutesDelta: Math.round(elapsedSec / 60) });
-            } catch {}
-          }
         }
       })();
     };
@@ -140,21 +168,9 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
     if (playing) {
       player.pause();
       // Log the session on pause
-      if (sessionStartRef.current && auth.currentUser) {
-        const end = Date.now();
-        const elapsedSec = Math.max(0, Math.round((end - sessionStartRef.current) / 1000));
+      if (sessionStartRef.current && sessionMetaRef.current) {
+        await finalizeSession(sessionMetaRef.current, Date.now());
         sessionStartRef.current = null;
-        if (elapsedSec >= 5) {
-          try {
-            await addDoc(collection(db, "users", auth.currentUser.uid, "sessions"), {
-              durationSec: elapsedSec,
-              endedAt: serverTimestamp(),
-              title: meditation?.title || "session",
-            });
-            await updateUserStats(auth.currentUser.uid, { minutesDelta: Math.round(elapsedSec / 60) });
-            notifySaved(elapsedSec);
-          } catch {}
-        }
       }
     } else {
       // If we're at or near the end, reset to start for replay
@@ -164,7 +180,21 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
         }
       } catch {}
       player.play();
-      if (!sessionStartRef.current) sessionStartRef.current = Date.now();
+      if (!sessionStartRef.current) {
+        const startTs = Date.now();
+        sessionStartRef.current = startTs;
+        const meta = {
+          startTs,
+          title: meditation?.title,
+          meditationId: meditation?.id || meditation?.docId,
+          bg: backgroundSound || 'none',
+          loopAtStart: loop,
+          bgVolumeAtStart: bgVol,
+          meditationUrl: meditation?.url || null,
+        };
+        sessionMetaRef.current = meta;
+        try { await AsyncStorage.setItem(activeKey, JSON.stringify(meta)); } catch {}
+      }
     }
   };
 
@@ -173,21 +203,9 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
     if (status?.didJustFinish) {
       // finalize session if running
       (async () => {
-        if (sessionStartRef.current && auth.currentUser) {
-          const end = Date.now();
-          const elapsedSec = Math.max(0, Math.round((end - sessionStartRef.current) / 1000));
+        if (sessionStartRef.current && sessionMetaRef.current) {
+          await finalizeSession(sessionMetaRef.current, Date.now());
           sessionStartRef.current = null;
-          if (elapsedSec >= 5) {
-            try {
-              await addDoc(collection(db, "users", auth.currentUser.uid, "sessions"), {
-                durationSec: elapsedSec,
-                endedAt: serverTimestamp(),
-                title: meditation?.title || "session",
-              });
-              await updateUserStats(auth.currentUser.uid, { minutesDelta: Math.round(elapsedSec / 60) });
-              notifySaved(elapsedSec);
-            } catch {}
-          }
         }
         // If not looping, stay paused at end; else native loop should handle
       })();
@@ -200,6 +218,10 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
     const next = Math.max(0, Math.min(cur + delta, dur));
     try { player.seekTo(next); } catch {}
   };
+
+  // Scrubber haptics state
+  const lastStepRef = useRef(null);
+  const stepSize = 5; // seconds granularity for step haptics during drag
 
   // Persist and restore BG volume
   useEffect(() => {
@@ -295,7 +317,17 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
         minimumValue={0}
         maximumValue={duration}
         value={progress}
-        onSlidingComplete={v => player.seekTo(v)}
+        onSlidingStart={() => { lastStepRef.current = null; selection(); }}
+        onValueChange={(v) => {
+          // fire a subtle selection haptic when crossing discrete step boundaries
+          const step = Math.floor(v / stepSize);
+          if (lastStepRef.current === null) { lastStepRef.current = step; }
+          if (step !== lastStepRef.current) {
+            lastStepRef.current = step;
+            selection();
+          }
+        }}
+        onSlidingComplete={(v) => { player.seekTo(v); impact('light'); }}
         minimumTrackTintColor="#7C4DFF"
         maximumTrackTintColor="#B3E5FC"
         thumbTintColor="#7C4DFF"

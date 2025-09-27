@@ -198,6 +198,8 @@ export default function Layout() {
         <Stack.Screen name="notifications" options={{ title: "Reminder Settings", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
         <Stack.Screen name="settings" options={{ title: "Settings", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
   <Stack.Screen name="achievements" options={{ title: "Achievements", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
+    <Stack.Screen name="sessions" options={{ title: "Sessions", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
+    <Stack.Screen name="session/[id]" options={{ title: "Session Details", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
     <Stack.Screen name="moodTracker" options={{ title: "Mood & Stress Tracker", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
     <Stack.Screen name="wellnessReport" options={{ title: "Wellness Report", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
   <Stack.Screen name="biometricLogin" options={{ title: "Biometric Login", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />

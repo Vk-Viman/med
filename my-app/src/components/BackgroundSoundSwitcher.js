@@ -1,5 +1,6 @@
 import React from "react";
 import { View, StyleSheet, TouchableOpacity, Text } from "react-native";
+import { selection } from "../utils/haptics";
 
 const sounds = [
   { label: "None", value: "none" },
@@ -13,7 +14,14 @@ export default function BackgroundSoundSwitcher({ value, onChange }) {
       {sounds.map(s => {
         const selected = value === s.value;
         return (
-          <TouchableOpacity key={s.value} onPress={() => onChange(s.value)} style={[styles.chip, selected && styles.chipSelected]} accessibilityRole="button" accessibilityState={{ selected }} accessibilityLabel={`Background sound ${s.label}${selected?' selected':''}`}>
+          <TouchableOpacity
+            key={s.value}
+            onPress={() => { selection(); onChange(s.value); }}
+            style={[styles.chip, selected && styles.chipSelected]}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+            accessibilityLabel={`Background sound ${s.label}${selected?' selected':''}`}
+          >
             <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{s.label.toUpperCase()}</Text>
           </TouchableOpacity>
         );

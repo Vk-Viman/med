@@ -367,7 +367,10 @@ export default function HomeScreen() {
 
         <View style={styles.primaryCtaWrap}>
           <Text style={[styles.sectionLabel,{ color: theme.textMuted }]}>FOCUS</Text>
-          <PrimaryButton title="Start Meditation" onPress={()=> navigate('/meditation','medium')} fullWidth left={<Ionicons name='play-circle' size={18} color='#fff' />} />
+          <View style={{ flexDirection:'row', gap:12 }}>
+            <PrimaryButton title="Start Meditation" onPress={()=> navigate('/meditation','medium')} left={<Ionicons name='play-circle' size={18} color='#fff' />} />
+            <PrimaryButton title="Sessions" onPress={()=> navigate('/sessions','light')} left={<Ionicons name='time-outline' size={18} color='#fff' />} />
+          </View>
         </View>
 
   <Text style={[styles.sectionLabel,{ color: theme.textMuted }]} accessibilityRole='header' accessibilityLabel='Insights'>INSIGHTS</Text>

@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import MeditationList from "../src/components/MeditationList";
@@ -9,11 +9,15 @@ import GradientBackground from "../src/components/GradientBackground";
 import { auth, db } from "../firebase/firebaseConfig";
 import { collection, onSnapshot, query, where, Timestamp } from "firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useLocalSearchParams } from 'expo-router';
+import { Alert } from 'react-native';
+import { getMeditationById } from '../src/services/admin';
 
 export default function MeditationPlayerScreen() {
   const [selectedMeditation, setSelectedMeditation] = useState(null);
   const [backgroundSound, setBackgroundSound] = useState("none");
   const [todayMinutes, setTodayMinutes] = useState(0);
+  const params = useLocalSearchParams();
   const uid = auth.currentUser?.uid || "local";
   const lastMedKey = `@med:lastSelection:${uid}`;
   const lastBgKey = `@med:lastBg:${uid}`;
@@ -69,6 +73,28 @@ export default function MeditationPlayerScreen() {
       AsyncStorage.setItem(lastBgKey, backgroundSound).catch(() => {});
     }
   }, [backgroundSound, lastBgKey]);
+
+  // Handle Replay params
+  useEffect(() => {
+    (async () => {
+      if (!params) return;
+      const { replayId, replayUrl, replayTitle } = params;
+      if (replayId) {
+        try {
+          const rec = await getMeditationById(String(replayId));
+          if (rec && rec.title && rec.category) {
+            setSelectedMeditation({ id: rec.id, title: rec.title, category: rec.category, url: rec.url || replayUrl || '' });
+            return;
+          }
+        } catch {}
+      }
+      if (replayUrl) {
+        const temp = { id: `replay:${Date.now()}`, title: replayTitle || 'Session Replay', category: 'Replay', url: String(replayUrl) };
+        setSelectedMeditation(temp);
+      }
+    })();
+    // Note: do not overwrite last selection with a one-off replay; keep persistence as-is
+  }, [params?.replayId, params?.replayUrl]);
 
     return (
       <GradientBackground>

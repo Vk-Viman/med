@@ -376,14 +376,26 @@ export async function exportMoodEntriesBetween({ startDate, endDate }){
 }
 
 export function buildMoodCSV(rows){
-  const header = 'id,date,mood,stress,noteLength,encVer,legacy';
-  const lines = rows.map(r=>{
+  const headerCols = ['id','date','mood','stress','noteLength','encVer','legacy'];
+  const esc = (val)=> {
+    const s = val==null ? '' : String(val);
+    // Quote and escape quotes per RFC 4180
+    return '"' + s.replace(/"/g, '""') + '"';
+  };
+  const body = rows.map(r => {
     const date = r.createdAt || '';
-    const mood = (r.mood||'').replace(/,/g,' ');
-    const noteLen = r.note? r.note.length:0;
-    return `${r.id},${date},${mood},${r.stress},${noteLen},${r.encVer},${r.legacy}`;
-  });
-  return [header, ...lines].join('\n');
+    const noteLen = r.note ? r.note.length : 0;
+    return [
+      esc(r.id),
+      esc(date),
+      esc(r.mood),
+      esc(r.stress),
+      esc(noteLen),
+      esc(r.encVer),
+      esc(r.legacy)
+    ].join(',');
+  }).join('\n');
+  return [headerCols.join(','), body].join('\n');
 }
 
 export function buildMoodMarkdown(rows){

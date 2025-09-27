@@ -5,7 +5,7 @@ import { useTheme } from '../../../src/theme/ThemeProvider';
 import PrimaryButton from '../../../src/components/PrimaryButton';
 import { getUserById, updateUserRole, requestWipeForUser, adminBumpSessionEpoch, listUserMoodDocs } from '../../../src/services/admin';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter } from 'expo-router';
 
 export default function AdminUserDetails(){
@@ -45,23 +45,26 @@ export default function AdminUserDetails(){
       const stamp = `${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;
       const filename = `user_${user.id}_moods_${stamp}.${fmt==='csv'?'csv':'json'}`;
       let content = '';
+      let mimeType = fmt==='csv'? 'text/csv' : 'application/json';
       if(fmt==='csv'){
-        const headers = Object.keys(rows[0]);
-        const esc = (v)=> {
-          const s = (v==null? '' : typeof v==='object'? JSON.stringify(v) : String(v));
-          return '"'+ s.replace(/"/g,'""') +'"';
-        };
-        content = headers.join(',') + '\n' + rows.map(r=> headers.map(h=> esc(r[h])).join(',')).join('\n');
+        const headers = Object.keys(rows[0]||{});
+        const header = headers.join(',');
+        const body = rows.map(r => headers.map(h => typeof r[h] === 'string' ? '"'+ String(r[h]).replace(/"/g,'""') +'"' : String(r[h] ?? '')).join(',')).join('\n');
+        content = [header, body].join('\n');
       } else {
         content = JSON.stringify({ exportedAt:new Date().toISOString(), uid: user.id, count: rows.length, entries: rows }, null, 2);
       }
       const uri = `${FileSystem.cacheDirectory}${filename}`;
-      await FileSystem.writeAsStringAsync(uri, content, { encoding: FileSystem.EncodingType.UTF8 });
-      if(await Sharing.isAvailableAsync()){
-        await Sharing.shareAsync(uri, { mimeType: fmt==='csv'? 'text/csv':'application/json', dialogTitle: `Share ${filename}` });
-      } else {
-        Alert.alert('Export', `File saved to cache: ${uri}`);
-      }
+      // Write with fallback encoding for compatibility
+      try { await FileSystem.writeAsStringAsync(uri, content); }
+      catch(e1){ try { await FileSystem.writeAsStringAsync(uri, content, { encoding: 'utf8' }); } catch(e2){ Alert.alert('Export Failed', String(e2?.message||e2)); throw e2; } }
+      try {
+        if(await Sharing.isAvailableAsync()){
+          await Sharing.shareAsync(uri, { mimeType, dialogTitle: `Share ${filename}` });
+        } else {
+          Alert.alert('Export', `File saved to cache: ${uri}`);
+        }
+      } catch(e){ Alert.alert('Export Failed', String(e?.message||e)); }
     } catch(e){ Alert.alert('Export Failed', e.message); }
     finally { setExporting(false); }
   };
