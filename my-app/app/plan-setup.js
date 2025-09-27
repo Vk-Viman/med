@@ -64,13 +64,14 @@ export default function PlanSetup() {
         if (!user) { setLoading(false); return; }
         const ref = doc(db, "users", user.uid);
         const snap = await getDoc(ref);
-        const q = snap.exists() ? snap.data()?.questionnaire : null;
-        if (q) {
-          setGoals(Array.isArray(q.goals) ? q.goals.slice(0,2) : []);
-          setExperience(q.experience ?? null);
-          setDuration(q.duration ?? null);
-          setTimes(Array.isArray(q.times) ? q.times : []);
-          setFocusAreas(Array.isArray(q.focusAreas) ? q.focusAreas : []);
+        const data = snap.exists() ? snap.data() : null;
+        const qv2 = data?.questionnaireV2 || null;
+        if (qv2) {
+          setGoals(Array.isArray(qv2.goals) ? qv2.goals.slice(0,2) : []);
+          setExperience(qv2.experience ?? null);
+          setDuration(qv2.duration ?? null);
+          setTimes(Array.isArray(qv2.times) ? qv2.times : []);
+          setFocusAreas(Array.isArray(qv2.focusAreas) ? qv2.focusAreas : []);
         }
       } catch (e) {
         console.log("Questionnaire load error", e);
@@ -201,10 +202,23 @@ export default function PlanSetup() {
     setSaving(true);
     try {
       await setDoc(doc(db, "users", user.uid), {
-        questionnaire: payload,
+        questionnaireV2: payload,
         questionnaireUpdatedAt: Date.now(),
       }, { merge: true });
-      router.replace("/plan");
+      // Offer to set reminders if user selected preferred times
+      if ((times || []).length > 0) {
+        const suggestion = `You picked: ${times.join(', ')}. Do you want to set reminders now?`;
+        Alert.alert(
+          'Set reminders?',
+          suggestion,
+          [
+            { text: 'Later', style: 'cancel', onPress: () => router.replace('/plan') },
+            { text: 'Set reminders', onPress: () => router.replace('/notifications') },
+          ]
+        );
+      } else {
+        router.replace('/plan');
+      }
     } catch (e) {
       Alert.alert("Error", e?.message || String(e));
     } finally {

@@ -25,8 +25,14 @@ export default function SignupScreen() {
   await createUserWithEmailAndPassword(auth, email, password);
   try { await ensureUserProfile(); } catch {}
   try {
-  const prof = await getUserProfile();
-  router.replace(isAdminType(prof?.userType) ? '/admin' : '/(tabs)');
+    const prof = await getUserProfile();
+    const isAdmin = isAdminType(prof?.userType);
+    const needsQuestionnaire = !prof?.questionnaireV2;
+    if (!isAdmin && needsQuestionnaire) {
+      router.replace('/plan-setup');
+    } else {
+      router.replace(isAdmin ? '/admin' : '/(tabs)');
+    }
   } catch {
     router.replace('/(tabs)');
   }

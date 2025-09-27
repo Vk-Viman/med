@@ -27,8 +27,13 @@ export default function LoginScreen() {
   try { await ensureUserProfile(); } catch {}
   try {
     const prof = await getUserProfile();
-  const dest = isAdminType(prof?.userType) ? '/admin' : '/(tabs)';
-    router.replace(dest);
+    const isAdmin = isAdminType(prof?.userType);
+    const needsQuestionnaire = !prof?.questionnaireV2;
+    if (!isAdmin && needsQuestionnaire) {
+      router.replace('/plan-setup');
+    } else {
+      router.replace(isAdmin ? '/admin' : '/(tabs)');
+    }
   } catch {
     router.replace('/(tabs)');
   }
@@ -54,7 +59,10 @@ export default function LoginScreen() {
       if (auth.currentUser) {
         try {
           const prof = await getUserProfile();
-          router.replace(isAdminType(prof?.userType) ? '/admin' : '/(tabs)');
+          const isAdmin = isAdminType(prof?.userType);
+          const needsQuestionnaire = !prof?.questionnaireV2;
+          if (!isAdmin && needsQuestionnaire) router.replace('/plan-setup');
+          else router.replace(isAdmin ? '/admin' : '/(tabs)');
         } catch {
           router.replace('/(tabs)');
         }

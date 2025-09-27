@@ -56,6 +56,11 @@ export default function PlanScreen() {
           const data = snap.data();
           if (data?.plan) setSavedPlan(data.plan);
           if (data?.updatedAt) setLastUpdated(data.updatedAt);
+          // Prefer V2 for summary if present
+          if (data?.questionnaireV2) {
+            const q = data.questionnaireV2;
+            // Keep old state usage but don't override user’s in-progress answers
+          }
           if (data?.questionnaire) {
             setStress(data.questionnaire.stress ?? null);
             setMood(data.questionnaire.mood ?? null);
