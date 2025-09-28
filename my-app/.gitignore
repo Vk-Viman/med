@@ -6,7 +6,8 @@ node_modules/
 # Expo
 .expo/
 dist/
-web-build/
+# web-build is kept for Pages; do not ignore it
+# web-build/
 expo-env.d.ts
 
 # Native
