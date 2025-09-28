@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, Button, Alert, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, Button, Alert, TouchableOpacity, ScrollView } from "react-native";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { db, auth } from "../firebase/firebaseConfig";
 import { useRouter } from "expo-router";
@@ -44,6 +44,7 @@ export default function PlanScreen() {
   const [savedPlan, setSavedPlan] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [loadingSaved, setLoadingSaved] = useState(true);
+  const [qv2, setQv2] = useState(null);
 
   useEffect(() => {
     const loadSaved = async () => {
@@ -57,10 +58,7 @@ export default function PlanScreen() {
           if (data?.plan) setSavedPlan(data.plan);
           if (data?.updatedAt) setLastUpdated(data.updatedAt);
           // Prefer V2 for summary if present
-          if (data?.questionnaireV2) {
-            const q = data.questionnaireV2;
-            // Keep old state usage but don't override user’s in-progress answers
-          }
+          if (data?.questionnaireV2) setQv2(data.questionnaireV2);
           if (data?.questionnaire) {
             setStress(data.questionnaire.stress ?? null);
             setMood(data.questionnaire.mood ?? null);
@@ -129,51 +127,73 @@ export default function PlanScreen() {
 
   const plan = generatePlan();
 
+  const renderQv2Summary = () => {
+    if (!qv2) return null;
+    const parts = [];
+    if (Array.isArray(qv2.goals) && qv2.goals.length) parts.push(`Goals: ${qv2.goals.join(', ')}`);
+    if (qv2.experience) parts.push(`Level: ${qv2.experience}`);
+    if (qv2.duration) parts.push(`Duration: ${qv2.duration} min`);
+    if (Array.isArray(qv2.times) && qv2.times.length) parts.push(`Times: ${qv2.times.join(', ')}`);
+    if (Array.isArray(qv2.focusAreas) && qv2.focusAreas.length) parts.push(`Focus: ${qv2.focusAreas.join(', ')}`);
+    return (
+      <View style={styles.qv2Card} accessibilityRole="summary">
+        <Text style={styles.qv2Title}>Your preferences</Text>
+        <Text style={styles.qv2Text}>{parts.join(' \u2022 ') || 'No preferences yet.'}</Text>
+        <TouchableOpacity onPress={() => router.push('/plan-setup')} style={styles.qv2EditBtn} accessibilityRole="button" accessibilityLabel="Retake questionnaire">
+          <Text style={styles.qv2EditText}>Edit preferences</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Personalized Meditation Plan</Text>
-      <TouchableOpacity
-        onPress={() => router.push('/plan-setup')}
-        accessibilityRole="button"
-        accessibilityLabel="Open guided plan setup questionnaire"
-        style={styles.guidedBtn}
-      >
-        <Text style={styles.guidedBtnText}>{savedPlan ? 'Retake questionnaire' : 'Guided setup'}</Text>
-      </TouchableOpacity>
-      {!loadingSaved && (
-        savedPlan ? (
-          <View style={styles.savedCard}>
-            <Text style={styles.savedTitle}>Your saved plan</Text>
-            <Text style={styles.savedText}>{savedPlan.title} \u2022 {savedPlan.minutes} min</Text>
-            {formatUpdated(lastUpdated) ? (
-              <Text style={styles.updatedText}>Last updated: {formatUpdated(lastUpdated)}</Text>
-            ) : null}
+      <ScrollView contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+        <Text style={styles.title}>Personalized Meditation Plan</Text>
+        <TouchableOpacity
+          onPress={() => router.push('/plan-setup')}
+          accessibilityRole="button"
+          accessibilityLabel="Open guided plan setup questionnaire"
+          style={styles.guidedBtn}
+        >
+          <Text style={styles.guidedBtnText}>{savedPlan ? 'Retake questionnaire' : 'Guided setup'}</Text>
+        </TouchableOpacity>
+        {!loadingSaved && (
+          savedPlan ? (
+            <View style={styles.savedCard}>
+              <Text style={styles.savedTitle}>Your saved plan</Text>
+              <Text style={styles.savedText}>{savedPlan.title} \u2022 {savedPlan.minutes} min</Text>
+              {formatUpdated(lastUpdated) ? (
+                <Text style={styles.updatedText}>Last updated: {formatUpdated(lastUpdated)}</Text>
+              ) : null}
+            </View>
+          ) : (
+            <Text style={styles.planPlaceholder}>No saved plan yet. Answer below to create one.</Text>
+          )
+        )}
+        {renderQv2Summary()}
+        <OptionRow label="Stress" options={choices.stress} value={stress} onChange={setStress} />
+        <OptionRow label="Mood" options={choices.mood} value={mood} onChange={setMood} />
+        <OptionRow label="Goal" options={choices.goal} value={goal} onChange={setGoal} />
+
+        {(stress || mood || goal) && (
+          <View style={styles.summaryPill}>
+            <Text style={styles.summaryText}>
+              {`Stress: ${stress || '\u2014'} \u2022 Mood: ${mood || '\u2014'} \u2022 Goal: ${goal || '\u2014'}`}
+            </Text>
           </View>
+        )}
+
+        {plan ? (
+    <Text style={styles.plan}>Suggested: {plan.title} \u2022 {plan.minutes} min</Text>
         ) : (
-          <Text style={styles.planPlaceholder}>No saved plan yet. Answer below to create one.</Text>
-        )
-      )}
-      <OptionRow label="Stress" options={choices.stress} value={stress} onChange={setStress} />
-      <OptionRow label="Mood" options={choices.mood} value={mood} onChange={setMood} />
-      <OptionRow label="Goal" options={choices.goal} value={goal} onChange={setGoal} />
+          <Text style={styles.planPlaceholder}>Answer to see your plan</Text>
+        )}
 
-      {(stress || mood || goal) && (
-        <View style={styles.summaryPill}>
-          <Text style={styles.summaryText}>
-            {`Stress: ${stress || '—'} \u2022 Mood: ${mood || '—'} \u2022 Goal: ${goal || '—'}`}
-          </Text>
-        </View>
-      )}
-
-      {plan ? (
-  <Text style={styles.plan}>Suggested: {plan.title} \u2022 {plan.minutes} min</Text>
-      ) : (
-        <Text style={styles.planPlaceholder}>Answer to see your plan</Text>
-      )}
-
-      <TouchableOpacity onPress={onSave} disabled={saving} style={[styles.saveBtn, saving && { opacity:0.6 }]} accessibilityRole="button">
-        <Text style={styles.saveBtnText}>{saving ? 'Saving...' : 'Save Plan'}</Text>
-      </TouchableOpacity>
+        <TouchableOpacity onPress={onSave} disabled={saving} style={[styles.saveBtn, saving && { opacity:0.6 }]} accessibilityRole="button">
+          <Text style={styles.saveBtnText}>{saving ? 'Saving...' : 'Save Plan'}</Text>
+        </TouchableOpacity>
+      </ScrollView>
     </View>
   );
 }

@@ -1,6 +1,6 @@
 // Firebase config for the Expo app
 import { initializeApp } from "firebase/app";
-import { initializeAuth, getReactNativePersistence } from "firebase/auth";
+import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
@@ -15,8 +15,19 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-export const auth = initializeAuth(app, {
-  persistence: getReactNativePersistence(AsyncStorage),
-});
+
+// Initialize Auth differently for web vs native
+let authInstance;
+if (Platform.OS === 'web') {
+  const { getAuth, setPersistence, browserLocalPersistence } = require('firebase/auth');
+  authInstance = getAuth(app);
+  try { setPersistence(authInstance, browserLocalPersistence); } catch {}
+} else {
+  const { initializeAuth, getReactNativePersistence } = require('firebase/auth');
+  authInstance = initializeAuth(app, {
+    persistence: getReactNativePersistence(AsyncStorage),
+  });
+}
+export const auth = authInstance;
 export const db = getFirestore(app);
 export const storage = getStorage(app);

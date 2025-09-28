@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Alert, FlatList, useWindowDimensions } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Alert, FlatList, useWindowDimensions, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 import { auth, db } from "../firebase/firebaseConfig";
 import { doc, getDoc, setDoc } from "firebase/firestore";
@@ -228,7 +228,9 @@ export default function PlanSetup() {
 
   const renderItem = ({ item }) => (
     <View style={[styles.slide, { width }]}> 
-      {item.render()}
+      <ScrollContent>
+        {item.render()}
+      </ScrollContent>
     </View>
   );
 
@@ -284,7 +286,7 @@ function toggleInArray(setter, arr, value, max) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#E1F5FE" },
-  slide: { flex: 1, padding: 20 },
+  slide: { flex: 1, padding: 20, paddingBottom: 120 },
   stepWrap: { flex: 1 },
   stepTitle: { fontSize: 22, fontWeight: "800", color: "#01579B", marginBottom: 4 },
   stepSubtitle: { color: "#0277BD", marginBottom: 8 },
@@ -299,4 +301,14 @@ const styles = StyleSheet.create({
   navBtnText: { fontWeight: '800', letterSpacing: 0.4 },
   cta: { backgroundColor: '#0288D1' },
 });
+
+function ScrollContent({ children }){
+  return (
+    <View style={{ flex:1 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
+        {children}
+      </ScrollView>
+    </View>
+  );
+}
  

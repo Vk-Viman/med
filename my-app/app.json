@@ -1,7 +1,7 @@
 {
   "expo": {
     "scheme": "calmspace",
-    "name": "my-app",
+    "name": "CalmSpace",
     "slug": "my-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -27,13 +27,17 @@
       }
     },
     "android": {
+      "package": "io.github.vkviman.calmspace",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
       "permissions": [
-        "NOTIFICATIONS"
+        "NOTIFICATIONS",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "web": {
@@ -49,6 +53,15 @@
       ],
       "expo-notifications",
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "router": {
+        "origin": "https://vk-viman.github.io",
+        "basePath": "/med"
+      },
+      "eas": {
+        "projectId": "c09fda06-4107-4fd1-8c71-f7871ce586da"
+      }
+    }
   }
 }
