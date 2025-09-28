@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "export:web": "expo export --platform web --output-dir web-build",
     "postexport:web": "copy web-build\\index.html web-build\\404.html >NUL 2>&1 || exit 0",
-    "export:docs": "expo export --platform web --output-dir web-build && rmdir /S /Q docs >NUL 2>&1 || exit 0 && xcopy /E /I /Y web-build docs"
+    "export:docs": "expo export --platform web --output-dir web-build && (copy web-build\\index.html web-build\\404.html >NUL 2>&1 || exit 0) && (IF EXIST ..\\docs rmdir /S /Q ..\\docs) && xcopy /E /I /Y web-build ..\\docs"
   },
   "dependencies": {
     "@lottiefiles/dotlottie-react": "^0.13.5",
