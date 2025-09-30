@@ -1,0 +1,62 @@
+# Global
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.vscode/
+.idea/
+
+# Environment files (never commit secrets)
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Node
+node_modules/
+**/node_modules/
+
+# Expo/React Native
+.expo/
+.expo-shared/
+.eas/
+web-build/
+**/web-build/
+.expo-packager-cache/
+.expo-internal/
+
+# Android/iOS build artifacts
+android/
+ios/
+**/android/
+**/ios/
+
+# Firebase/Google services (avoid committing these)
+**/google-services.json
+**/GoogleService-Info.plist
+
+# Dist/build
+build/
+dist/
+**/build/
+**/dist/
+.cache/
+.next/
+.out/
+
+# Coverage
+coverage/
+**/coverage/
+
+# Static export artifacts
+/docs/_expo/
+**/docs/_expo/
+
+# Misc
+.tmp/
+.temp/
+*.swp
+*.swm
