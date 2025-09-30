@@ -1,0 +1,27 @@
+# Exclude files from upload to EAS Build to reduce tarball size
+# EAS already ignores node_modules. Keep this list conservative.
+# VCS and editor
+.git/
+.gitignore
+*.iml
+.idea/
+.vscode/
+.DS_Store
+
+# Expo local dirs
+.expo/
+.expo-shared/
+
+# Build outputs and caches
+web-build/
+dist/
+/build/
+*.apk
+*.aab
+*.ipa
+
+# Docs
+/docs/
+
+# Misc
+*.log

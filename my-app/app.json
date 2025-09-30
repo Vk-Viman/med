@@ -34,6 +34,7 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "NOTIFICATIONS",
         "android.permission.RECORD_AUDIO",
@@ -59,6 +60,7 @@
         "origin": "https://vk-viman.github.io",
         "basePath": "/med"
       },
+      "apiBase": "http://192.168.8.105:3000",
       "eas": {
         "projectId": "c09fda06-4107-4fd1-8c71-f7871ce586da"
       }

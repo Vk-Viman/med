@@ -8,6 +8,22 @@
   }
 }
 
+// Ensure Android has a high-importance default channel for local notifications in release builds
+export async function ensureAndroidNotificationChannel() {
+  try {
+    const Notifications = await import('expo-notifications');
+    const { Platform } = await import('react-native');
+    if (Platform.OS !== 'android') return;
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'Reminders',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      sound: 'default',
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
+  } catch {}
+}
+
 export async function requestLocalNotificationPermissions() {
   if (await isAndroidExpoGo()) {
     try { const { Alert } = await import('react-native'); Alert.alert('Notifications', 'Expo Go on Android does not support push. Local reminders require a development build.'); } catch {}
@@ -15,7 +31,12 @@ export async function requestLocalNotificationPermissions() {
   }
   const Notifications = await import("expo-notifications");
   const { status } = await Notifications.requestPermissionsAsync();
-  return status === "granted";
+  const granted = status === "granted";
+  if (granted) {
+    // Create/upgrade Android channel so scheduled notifications actually appear in APKs
+    await ensureAndroidNotificationChannel();
+  }
+  return granted;
 }
 
 export async function scheduleLocalNotification({
@@ -41,6 +62,13 @@ export async function scheduleLocalNotification({
       }),
     });
 
+    // Register categories/actions once
+    try {
+      const { registerNotificationActions, handleNotificationResponse } = await import('./services/adaptiveNotifications');
+      await registerNotificationActions();
+      Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
+    } catch {}
+
     const granted = await requestLocalNotificationPermissions();
     if (!granted) {
       if (typeof window === "undefined") {
@@ -51,8 +79,11 @@ export async function scheduleLocalNotification({
       return false;
     }
 
+    // Double-ensure Android channel exists before scheduling (safe no-op on iOS/web)
+    await ensureAndroidNotificationChannel();
+
     await Notifications.scheduleNotificationAsync({
-      content: { title, body },
+      content: { title, body, categoryIdentifier: 'med-reminder' },
       trigger: { hour, minute, repeats: true },
     });
     return true;

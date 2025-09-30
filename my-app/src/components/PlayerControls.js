@@ -243,6 +243,7 @@ export default function PlayerControls({ meditation, backgroundSound, disabled }
       }, { merge: true });
       // Update stats once per session (only when we set it for the first time)
       await updateUserStats(auth.currentUser.uid, { minutesDelta: Math.round(elapsedSec / 60) });
+      try { const { markSessionCompleted } = await import('../services/adaptiveNotifications'); await markSessionCompleted(); } catch {}
       notifySaved(elapsedSec);
     } catch {}
     try { await AsyncStorage.removeItem(activeKey); } catch {}

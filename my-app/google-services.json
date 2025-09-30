@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "765940996744",
+    "project_id": "calmspace-4c73f",
+    "storage_bucket": "calmspace-4c73f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:765940996744:android:fb8812038bbc3a4aa0dd3d",
+        "android_client_info": {
+          "package_name": "io.github.vkviman.calmspace"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCmF5j7X2FkAqZvaUF6luCPXoCK2qH4MyI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

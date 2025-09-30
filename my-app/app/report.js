@@ -1,9 +1,10 @@
 ﻿import React, { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Dimensions, Alert, Platform, ScrollView, AccessibilityInfo, InteractionManager, findNodeHandle } from "react-native";
+import { View, Text, StyleSheet, Dimensions, Alert, Platform, ScrollView, AccessibilityInfo, InteractionManager, findNodeHandle, Pressable } from "react-native";
+import { useTheme } from "../src/theme/ThemeProvider";
 import GradientBackground from "../src/components/GradientBackground";
 import Card from "../src/components/Card";
 import { auth } from "../firebase/firebaseConfig";
-import { collection, query, where, onSnapshot, Timestamp } from "firebase/firestore";
+import { collection, query, where, onSnapshot, Timestamp, getDocs, orderBy, limit } from "firebase/firestore";
 import { db } from "../firebase/firebaseConfig";
 import { LineChart } from "react-native-chart-kit";
 import * as LocalAuthentication from "expo-local-authentication";
@@ -14,9 +15,14 @@ const BIOMETRIC_PREF_KEY = 'pref_biometric_enabled_v1';
 
 export default function WeeklyReportScreen() {
   const [minutesByDay, setMinutesByDay] = useState([0, 0, 0, 0, 0, 0, 0]);
+  const [prevWeekTotal, setPrevWeekTotal] = useState(0);
+  const [streakDays, setStreakDays] = useState(0);
+  const [tips, setTips] = useState([]);
   const [unlocked, setUnlocked] = useState(false);
   const router = useRouter();
   const titleRef = useRef(null);
+  const shareViewRef = useRef(null);
+  const { theme } = useTheme();
 
   // Biometric gate on enter (if user enabled it)
   useEffect(() => {
@@ -63,12 +69,82 @@ export default function WeeklyReportScreen() {
         // Convert to minutes with one decimal so short sessions show up
         const arrMin = arrSec.map((s) => Math.round((s / 60) * 10) / 10);
         setMinutesByDay(arrMin);
+        // Derive adherence-based tips when current week changes
+        deriveTips(arrMin);
       });
       return () => unsub();
     } catch (e) {
       Alert.alert("Error", e.message);
     }
   }, [unlocked]);
+
+  // PDF export is supported via expo-print (installed)
+
+  // Previous week total (for trend), and streak over last 30 days
+  useEffect(() => {
+    if (!unlocked) return;
+    const user = auth.currentUser; if (!user) return;
+    (async () => {
+      try {
+        const now = new Date();
+        const startCurr = new Date(now);
+        startCurr.setDate(now.getDate() - 6);
+        startCurr.setHours(0,0,0,0);
+        const startPrev = new Date(startCurr);
+        startPrev.setDate(startCurr.getDate() - 7);
+
+        // Previous week window: [startPrev, startCurr)
+        const qPrev = query(
+          collection(db, 'users', user.uid, 'sessions'),
+          where('endedAt', '>=', Timestamp.fromDate(startPrev)),
+          where('endedAt', '<', Timestamp.fromDate(startCurr))
+        );
+        const prevSnap = await getDocs(qPrev);
+        let prevSec = 0;
+        prevSnap.forEach(doc => {
+          const d = doc.data();
+          if (!d.durationSec) return; prevSec += d.durationSec;
+        });
+        setPrevWeekTotal(Math.round((prevSec/60)*10)/10);
+      } catch {}
+
+      try {
+        // Streak over last 30 days
+        const ref = collection(db, 'users', user.uid, 'sessions');
+        const q = query(ref, orderBy('endedAt','desc'), limit(200));
+        const snap = await getDocs(q);
+        const days = new Set();
+        const today = new Date(); today.setHours(0,0,0,0);
+        snap.forEach(doc => {
+          const d = doc.data(); const dt = d?.endedAt?.toDate?.(); if(!dt) return;
+          const key = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).toISOString().slice(0,10);
+          days.add(key);
+        });
+        let streak = 0;
+        for(let i=0;i<30;i++){
+          const dt = new Date(today); dt.setDate(today.getDate()-i);
+          const key = dt.toISOString().slice(0,10);
+          if(days.has(key)) streak++; else break;
+        }
+        setStreakDays(streak);
+      } catch {}
+    })();
+  }, [unlocked]);
+
+  function deriveTips(weekArrMin){
+    try {
+      const total = weekArrMin.reduce((a,b)=>a+b,0);
+      const daysActive = weekArrMin.filter(v=>v>0).length;
+      const avg = total / Math.max(weekArrMin.length,1);
+      const t = [];
+      if (streakDays >= 5) t.push('Great streak! Keep momentum with a consistent time each day.');
+      if (daysActive <= 2) t.push('Try 5–10 minute sessions and enable the backup reminder in Settings.');
+      if (avg < 7) t.push('Short, frequent sessions work best—aim for a quick pause after a routine (coffee, lunch).');
+      if (avg >= 15) t.push('Consider one longer mid-week session to deepen your practice.');
+      // Trend-aware tip will be added when we have current vs previous deltas at render time
+      setTips(t.slice(0,3));
+    } catch {}
+  }
 
   // Announce screen and focus heading after interactions
   useEffect(() => {
@@ -104,10 +180,16 @@ export default function WeeklyReportScreen() {
   })();
 
   const noData = minutesByDay.every((v) => v === 0);
+  const currentTotal = minutesByDay.reduce((a, b) => a + b, 0);
+  const trendDelta = currentTotal - prevWeekTotal;
+  const trendPct = prevWeekTotal > 0 ? Math.round((trendDelta / prevWeekTotal) * 100) : null;
+  const trendLabel = trendPct === null ? '—' : `${trendPct >= 0 ? '+' : ''}${trendPct}%`;
+  const activeDays = minutesByDay.filter(v=>v>0).length;
 
   return (
     <GradientBackground>
-      <ScrollView style={{ flex:1 }} contentContainerStyle={styles.container}>
+    <ScrollView style={{ flex:1 }} contentContainerStyle={styles.container}>
+  <View ref={shareViewRef} collapsable={false} style={[styles.shareCapture, { backgroundColor: theme.card }]}>
   <Text ref={titleRef} style={styles.title} accessibilityRole='header' accessibilityLabel='Weekly Report'>Weekly Report</Text>
         <Card>
           <LineChart
@@ -127,18 +209,128 @@ export default function WeeklyReportScreen() {
             style={{ borderRadius: 12 }}
           />
         </Card>
-        <Text style={styles.total}>Total minutes: {minutesByDay.reduce((a, b) => a + b, 0).toFixed(1)}</Text>
+        <Text style={styles.total}>Total minutes: {currentTotal.toFixed(1)}</Text>
+        <View style={styles.row}>
+          <Text style={styles.kpi}>Active days: {activeDays}/7</Text>
+          <Text style={[styles.kpi, trendDelta>=0?styles.up:styles.down]}>WoW: {trendLabel}</Text>
+          <Text style={styles.kpi}>Streak: {streakDays} day{streakDays===1?'':'s'}</Text>
+        </View>
+
+        {/* Insights */}
+        <Card>
+          <Text style={styles.sectionTitle}>Insights</Text>
+          {trendPct !== null && (
+            <Text style={styles.insight}>You're {trendDelta >= 0 ? 'up' : 'down'} {Math.abs(trendPct)}% vs last week ({prevWeekTotal.toFixed(1)}m).</Text>
+          )}
+          {trendPct === null && (
+            <Text style={styles.insight}>Not enough data from last week yet—keep logging sessions.</Text>
+          )}
+          {streakDays >= 3 && (
+            <Text style={styles.insight}>Nice streak of {streakDays} days. Consistency compounds!</Text>
+          )}
+          {streakDays === 0 && (
+            <Text style={styles.insight}>Start today to begin your streak.</Text>
+          )}
+        </Card>
+
+        {/* Recommended tips */}
+        <Card>
+          <Text style={styles.sectionTitle}>Recommended tips</Text>
+          {[...tips,
+            ...(trendPct !== null && trendPct < -10 ? ['A small, consistent window works best—anchor your session to a routine.'] : []),
+          ].slice(0,3).map((t,i)=>(
+            <Text key={i} style={styles.tip}>• {t}</Text>
+          ))}
+          {tips.length === 0 && trendPct === null && (
+            <Text style={styles.tip}>• Try a 5-minute session to get started—every minute counts.</Text>
+          )}
+        </Card>
+
+        {/* Export / Share */}
+        <Card>
+          <Text style={styles.sectionTitle}>Export</Text>
+          <View style={styles.actionsRow}>
+            <Pressable style={styles.actionBtn} onPress={async ()=>{
+              try{
+                const Print = await import('expo-print');
+                const Sharing = await import('expo-sharing');
+                const html = buildReportHtml({ dateLabels, minutesByDay, currentTotal, prevWeekTotal, trendPct, streakDays, activeDays });
+                const { uri } = await Print.printToFileAsync({ html });
+                if (await Sharing.isAvailableAsync()) {
+                  await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Share Weekly Report' });
+                } else {
+                  Alert.alert('Saved', 'PDF generated at: ' + uri);
+                }
+              } catch(e){ Alert.alert('Export failed', e?.message || String(e)); }
+            }}>
+              <Text style={styles.actionText}>Share as PDF</Text>
+            </Pressable>
+            <Pressable style={styles.actionBtn} onPress={async ()=>{
+              try{
+                const { captureRef } = await import('react-native-view-shot');
+                const Sharing = await import('expo-sharing');
+                const uri = await captureRef(shareViewRef, { format: 'png', quality: 0.9, backgroundColor: theme.card });
+                if (await Sharing.isAvailableAsync()) {
+                  await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: 'Share Weekly Report' });
+                } else {
+                  Alert.alert('Saved', 'Image generated at: ' + uri);
+                }
+              } catch(e){ Alert.alert('Export failed', e?.message || String(e)); }
+            }}>
+              <Text style={styles.actionText}>Share as Image</Text>
+            </Pressable>
+          </View>
+        </Card>
         {noData && (
           <Text style={styles.hint}>Tip: press Play for a short session, then Pause to log it.</Text>
         )}
+  </View>
       </ScrollView>
     </GradientBackground>
   );
 }
 
+function buildReportHtml({ dateLabels, minutesByDay, currentTotal, prevWeekTotal, trendPct, streakDays, activeDays }){
+  const rows = dateLabels.map((lbl, i) => `<tr><td>${lbl}</td><td style="text-align:right">${minutesByDay[i].toFixed(1)} m</td></tr>`).join('');
+  const trendStr = trendPct === null ? '—' : `${trendPct >= 0 ? '+' : ''}${trendPct}%`;
+  return `
+  <html><head><meta charset="utf-8"/>
+  <style>
+    body{ font-family: -apple-system,Segoe UI,Roboto,Arial,sans-serif; padding:16px; color:#074b6d }
+    h1{ color:#0288D1 }
+    table{ width:100%; border-collapse:collapse; margin-top:8px }
+    td{ padding:6px 4px; border-bottom:1px solid #e0f2f1 }
+    .kpis{ margin:8px 0; display:flex; gap:16px; color:#01579B }
+  </style></head>
+  <body>
+    <h1>Weekly Report</h1>
+    <div class="kpis">
+      <div>Total: ${currentTotal.toFixed(1)} m</div>
+      <div>Active days: ${activeDays}/7</div>
+      <div>WoW: ${trendStr}</div>
+      <div>Streak: ${streakDays} day${streakDays===1?'':'s'}</div>
+    </div>
+    <table>
+      ${rows}
+    </table>
+    <p style="margin-top:10px; color:#00796B">Prev week total: ${prevWeekTotal.toFixed(1)} m</p>
+  </body></html>`;
+}
+
 const styles = StyleSheet.create({
   container: { padding: 12, paddingBottom: 24 },
+  shareCapture: { borderRadius: 12, paddingBottom: 12 },
   title: { fontSize: 22, fontWeight: "bold", color: "#0288D1", marginBottom: 8 },
   total: { marginTop: 12, fontWeight: "600", color: "#01579B" },
   hint: { marginTop: 8, color: "#607D8B" },
+  row: { flexDirection: 'row', gap: 16, marginTop: 8, flexWrap: 'wrap' },
+  kpi: { color: '#01579B', fontWeight: '600' },
+  up: { color: '#2e7d32' },
+  down: { color: '#c62828' },
+  sectionTitle: { fontWeight: '700', color: '#01579B', marginBottom: 6 },
+  insight: { color: '#355F6B', marginTop: 4 },
+  tip: { color: '#355F6B', marginTop: 4 },
+  actionsRow: { flexDirection: 'row', gap: 12 },
+  actionBtn: { backgroundColor: '#0288D1', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, alignSelf: 'flex-start' },
+  actionText: { color: 'white', fontWeight: '700' },
 });

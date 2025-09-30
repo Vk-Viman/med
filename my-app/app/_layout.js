@@ -7,7 +7,11 @@ import { deleteAllMoodEntries, getRetentionDays, getRetentionLastRunTs, setReten
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { ThemeProvider, useTheme } from "../src/theme/ThemeProvider";
+import { runAdaptiveScheduler, registerNotificationActions, handleNotificationResponse, getAdaptiveSettings } from "../src/services/adaptiveNotifications";
+import { registerPushTokens } from "../src/services/pushTokens";
+import { openFromNotificationData, wireForegroundHandler } from "../src/services/pushNavigation";
 import { DeviceEventEmitter as RNEmitter } from 'react-native';
+import { auth } from "../firebase/firebaseConfig";
 
 const AUTO_LOCK_KEY = 'privacy_auto_lock_seconds_v1';
 const LAST_ROUTE_BEFORE_LOCK_KEY = 'last_route_before_lock_v1';
@@ -63,6 +67,36 @@ function ActivityWrapper({ children }){
     const sub = AppState.addEventListener('change', state => { if(state==='active'){ loadInterval(); resetTimer(); } else { resetTimer(); } });
     lockTimerRef.current = setInterval(checkLock, 1000);
     return ()=>{ sub.remove(); if(lockTimerRef.current) clearInterval(lockTimerRef.current); };
+  },[]);
+
+  // Register notification actions and handle responses globally; run adaptive scheduler when the app becomes active
+  useEffect(()=>{
+    let respSub;
+    (async()=>{
+      try {
+        const Notifications = await import('expo-notifications');
+        wireForegroundHandler();
+        await registerNotificationActions();
+        respSub = Notifications.addNotificationResponseReceivedListener((resp)=>{
+          try { handleNotificationResponse(resp); } catch {}
+          try { openFromNotificationData(resp?.notification?.request?.content?.data); } catch {}
+        });
+      } catch {}
+    })();
+    const onAppState = async (s) => {
+      if (s === 'active') {
+        try {
+          // Attempt to register push tokens on app foreground
+          try { await registerPushTokens(); } catch {}
+          const s = await getAdaptiveSettings();
+          if (s?.enabled) await runAdaptiveScheduler();
+        } catch {}
+      }
+    };
+    const sub = AppState.addEventListener('change', onAppState);
+    // Also run once on mount
+    (async()=>{ try { const s = await getAdaptiveSettings(); if (s?.enabled) await runAdaptiveScheduler(); } catch {} })();
+    return ()=>{ try { sub.remove(); } catch {}; try { respSub && respSub.remove && respSub.remove(); } catch {} };
   },[]);
 
   // Retention auto-purge check once per day when app becomes active
@@ -153,6 +187,43 @@ function ActivityWrapper({ children }){
 }
 
 export default function Layout() {
+  const router = useRouter();
+  const pathname = usePathname();
+
+  // Route guard: ensure unauthenticated users can't land on tabs/home directly
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const user = auth.currentUser;
+        const path = pathname || '';
+        const publicPaths = new Set([
+          '/splash',
+          '/onboarding',
+          '/login',
+          '/signup',
+          '/forgotPassword',
+          '/biometricLogin',
+        ]);
+
+        if (!user) {
+          // If we're on a protected route without auth, send to onboarding/login
+          if (!publicPaths.has(path)) {
+            const flagged = await AsyncStorage.getItem('cs_onboarded');
+            if (cancelled) return;
+            router.replace(flagged ? '/login' : '/onboarding');
+          }
+        } else {
+          // If authenticated and somehow on splash/login/onboarding, send to main tabs
+          if (path === '/splash' || path === '/login' || path === '/onboarding') {
+            router.replace('/(tabs)');
+          }
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [pathname]);
+
   const BackBtn = (props) => {
     const router = useRouter();
     const nav = useNavigation();
@@ -204,6 +275,7 @@ export default function Layout() {
     <Stack.Screen name="wellnessReport" options={{ title: "Wellness Report", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
   <Stack.Screen name="biometricLogin" options={{ title: "Biometric Login", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
         <Stack.Screen name="plan-setup" options={{ title: "Plan Setup", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
+        <Stack.Screen name="your-plan" options={{ title: "Your Plan", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
       </Stack>
       </ActivityWrapper>
     </ThemeProvider>

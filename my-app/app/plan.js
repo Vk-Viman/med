@@ -151,6 +151,14 @@ export default function PlanScreen() {
       <ScrollView contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>Personalized Meditation Plan</Text>
         <TouchableOpacity
+          onPress={() => router.push('/your-plan')}
+          accessibilityRole="button"
+          accessibilityLabel="Open AI-powered weekly plan"
+          style={[styles.guidedBtn, { backgroundColor:'#D1ECF9' }]}
+        >
+          <Text style={[styles.guidedBtnText,{ color:'#01579B' }]}>View Your Plan (AI)</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           onPress={() => router.push('/plan-setup')}
           accessibilityRole="button"
           accessibilityLabel="Open guided plan setup questionnaire"

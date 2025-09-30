@@ -21,6 +21,9 @@ import * as FSLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { getAdminConfig, subscribeAdminConfig } from '../src/services/config';
+import { registerPushTokens } from '../src/services/pushTokens';
+import { db } from '../firebase/firebaseConfig';
+import { doc, getDoc } from 'firebase/firestore';
 
 const BIOMETRIC_PREF_KEY = 'pref_biometric_enabled_v1';
 
@@ -572,6 +575,23 @@ export default function SettingsScreen() {
     {
       title: 'Account',
       data: [
+        { key:'pushDebug', type:'action', label:'Debug: Register Push Tokens', variant:'secondary', onPress: async()=>{
+            try {
+              const user = auth.currentUser;
+              if(!user){ Alert.alert('Push Tokens','Not signed in.'); return; }
+              const res = await registerPushTokens({ force:true });
+              let saved = null;
+              try {
+                const ref = doc(db, 'users', user.uid, 'private', 'push');
+                const snap = await getDoc(ref);
+                saved = snap.exists() ? snap.data() : null;
+              } catch {}
+              const fcm = res?.fcmToken || saved?.fcmToken || 'none';
+              const expo = res?.expoToken || saved?.expoPushToken || 'none';
+              const savedStr = saved ? 'yes' : 'no';
+              Alert.alert('Push Tokens', `FCM: ${fcm}\nExpo: ${expo}\nSaved in Firestore: ${savedStr}`);
+            } catch(e){ Alert.alert('Push Tokens', e?.message || String(e)); }
+        } },
         { key:'signout', type:'action', label:'Sign Out', onPress: logout, variant:'secondary' },
         { key:'signoutAll', type:'action', label:'Sign Out All Devices', onPress: async()=>{ try { await bumpSessionEpoch(); Alert.alert('Sessions','All devices will be signed out shortly.'); } catch(e){ Alert.alert('Error', e.message); } }, variant:'secondary' },
         { key:'resetOnboard', type:'action', label:'Reset Onboarding', onPress: resetOnboarding }
