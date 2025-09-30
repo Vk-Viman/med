@@ -1,5 +1,5 @@
 import { auth, db } from '../../firebase/firebaseConfig';
-import { doc, getDoc, collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
 import { callAI } from './aiClient';
 
 // Build user context: profile basics, recent history, preferences, availability
@@ -27,6 +27,86 @@ export async function recommendWeeklyPlan({ signal, forceRefresh = false } = {})
   const local = buildFallbackPlan(ctx, { forceRefresh });
   if (local && typeof local === 'object') local._source = 'local';
   return local;
+}
+
+// Persist and retrieval helpers
+export async function savePlanToUserDoc(plan){
+  try {
+    const uid = auth.currentUser?.uid; if(!uid) return false;
+    const now = Date.now();
+    await setDoc(doc(db, 'users', uid), { planAi: plan, planAiUpdatedAt: now }, { merge: true });
+    // Also save to private subcollection for stronger privacy separation
+    await setDoc(doc(db, 'users', uid, 'private', 'plan'), { plan, updatedAt: now, source: plan?._source || null }, { merge: true });
+    return true;
+  } catch { return false; }
+}
+
+export async function loadSavedPlan(){
+  try {
+    const uid = auth.currentUser?.uid; if(!uid) return null;
+    const snap = await getDoc(doc(db, 'users', uid));
+    if (snap.exists() && snap.data()?.planAi) return snap.data().planAi;
+    // Fallback to private path
+    const priv = await getDoc(doc(db, 'users', uid, 'private', 'plan'));
+    if (priv.exists()) return priv.data()?.plan || null;
+    return null;
+  } catch { return null; }
+}
+
+// Map preferred times to adaptive notification settings
+function mapPreferredTimesToSchedule(times){
+  const t = Array.isArray(times) ? times : [];
+  // Defaults
+  let baseHour = 8, baseMinute = 0;
+  let backupHour = 18, backupMinute = 0;
+  let quietStart = '22:00', quietEnd = '07:00';
+  const has = (label) => t.includes(label);
+  if (has('Morning')) { baseHour = 8; baseMinute = 0; }
+  if (has('Afternoon')) { baseHour = 13; baseMinute = 0; }
+  if (has('Evening')) { baseHour = 18; baseMinute = 0; }
+  if (has('Before bed')) { baseHour = 21; baseMinute = 0; quietStart = '22:30'; quietEnd = '07:30'; }
+  // Backup: if base is morning/afternoon, set evening backup; if evening/bed, set afternoon backup
+  if (baseHour <= 13) { backupHour = 19; backupMinute = 0; } else { backupHour = 15; backupMinute = 0; }
+  return { baseHour, baseMinute, backupHour, backupMinute, quietStart, quietEnd };
+}
+
+export async function applyPreferredTimesToAdaptive(times){
+  try {
+    const { setAdaptiveSettings } = await import('./adaptiveNotifications');
+    const m = mapPreferredTimesToSchedule(times);
+    await setAdaptiveSettings({
+      enabled: true,
+      baseHour: m.baseHour,
+      baseMinute: m.baseMinute,
+      backupEnabled: true,
+      backupHour: m.backupHour,
+      backupMinute: m.backupMinute,
+      quietStart: m.quietStart,
+      quietEnd: m.quietEnd,
+    });
+  } catch {}
+}
+
+export async function generateAndSavePlan({ forceRefresh = false, schedule = false } = {}){
+  const plan = await recommendWeeklyPlan({ forceRefresh });
+  await savePlanToUserDoc(plan);
+  let scheduleResult = null;
+  if (schedule) {
+    try {
+      const uid = auth.currentUser?.uid;
+      let prefTimes = [];
+      if (uid) {
+        const snap = await getDoc(doc(db, 'users', uid));
+        const data = snap.exists() ? snap.data() : {};
+        const q = data?.questionnaireV2 || {};
+        prefTimes = Array.isArray(q.times) ? q.times : [];
+      }
+      await applyPreferredTimesToAdaptive(prefTimes);
+      const { runAdaptiveScheduler } = await import('./adaptiveNotifications');
+      scheduleResult = await runAdaptiveScheduler();
+    } catch {}
+  }
+  return { plan, schedule: scheduleResult };
 }
 
 // Compute total completed minutes for today (local time)

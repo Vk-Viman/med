@@ -1,7 +1,8 @@
 ﻿import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, Button, Alert, TouchableOpacity, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Button, Alert, TouchableOpacity, ScrollView, ToastAndroid, Platform } from "react-native";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { db, auth } from "../firebase/firebaseConfig";
+import { generateAndSavePlan } from "../src/services/planService";
 import { useRouter } from "expo-router";
 
 const choices = {
@@ -45,6 +46,7 @@ export default function PlanScreen() {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [loadingSaved, setLoadingSaved] = useState(true);
   const [qv2, setQv2] = useState(null);
+  const [planFreshAt, setPlanFreshAt] = useState(null);
 
   useEffect(() => {
     const loadSaved = async () => {
@@ -57,6 +59,7 @@ export default function PlanScreen() {
           const data = snap.data();
           if (data?.plan) setSavedPlan(data.plan);
           if (data?.updatedAt) setLastUpdated(data.updatedAt);
+          if (data?.planAiUpdatedAt) setPlanFreshAt(data.planAiUpdatedAt);
           // Prefer V2 for summary if present
           if (data?.questionnaireV2) setQv2(data.questionnaireV2);
           if (data?.questionnaire) {
@@ -84,7 +87,14 @@ export default function PlanScreen() {
       else if (typeof ts === 'string') d = new Date(ts);
       else return '';
       if (isNaN(d.getTime())) return '';
-      return d.toLocaleString();
+      const diffMs = Date.now() - d.getTime();
+      const mins = Math.round(diffMs/60000);
+      if (mins < 1) return 'just now';
+      if (mins < 60) return `${mins}m ago`;
+      const hrs = Math.round(mins/60);
+      if (hrs < 24) return `${hrs}h ago`;
+      const days = Math.round(hrs/24);
+      return `${days}d ago`;
     } catch { return ''; }
   };
 
@@ -125,6 +135,43 @@ export default function PlanScreen() {
     }
   };
 
+  const onRecalculatePlan = async () => {
+    try {
+      setSaving(true);
+      const { plan, schedule } = await generateAndSavePlan({ forceRefresh: true, schedule: true });
+      setSavedPlan(plan);
+      const fresh = Date.now();
+      setPlanFreshAt(fresh);
+      // Toast/snackbar with next reminder window (always show feedback)
+      const pad = (n) => String(n).padStart(2,'0');
+      const showMsg = (msg) => {
+        if (Platform.OS === 'android') ToastAndroid.show(msg, ToastAndroid.SHORT); else Alert.alert('Scheduling', msg);
+      };
+      if (schedule && schedule.scheduled) {
+        const when = `${pad(schedule.hour)}:${pad(schedule.minute)}`;
+        const msg = schedule.backup ? `Next reminder ~${when} (backup ${pad(schedule.backup.hour)}:${pad(schedule.backup.minute)})` : `Next reminder ~${when}`;
+        showMsg(msg);
+      } else {
+        try {
+          const { getAdaptiveSettings } = await import('../src/services/adaptiveNotifications');
+          const s = await getAdaptiveSettings();
+          const base = `${pad(Number(s.baseHour||8))}:${pad(Number(s.baseMinute||0))}`;
+          const reason = schedule?.reason || 'not-scheduled';
+          let msg = `Reminders not scheduled (${reason}). Baseline: ~${base}`;
+          if (reason === 'quiet-hours') msg = `Quiet hours now. Baseline reminder ~${base}`;
+          if (reason === 'recent-completion' || reason === 'recent-nudge') msg = `Cooldown active. Baseline reminder ~${base}`;
+          showMsg(msg);
+        } catch {
+          showMsg('Reminders updated.');
+        }
+      }
+    } catch (e) {
+      Alert.alert('Error', e?.message || String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const plan = generatePlan();
 
   const renderQv2Summary = () => {
@@ -159,6 +206,14 @@ export default function PlanScreen() {
           <Text style={[styles.guidedBtnText,{ color:'#01579B' }]}>View Your Plan (AI)</Text>
         </TouchableOpacity>
         <TouchableOpacity
+          onPress={onRecalculatePlan}
+          accessibilityRole="button"
+          accessibilityLabel="Recalculate AI plan and reschedule reminders"
+          style={[styles.guidedBtn, { backgroundColor:'#C8F7C5' }]}
+        >
+          <Text style={[styles.guidedBtnText,{ color:'#0A7A0A' }]}>Recalculate plan</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           onPress={() => router.push('/plan-setup')}
           accessibilityRole="button"
           accessibilityLabel="Open guided plan setup questionnaire"
@@ -178,6 +233,12 @@ export default function PlanScreen() {
           ) : (
             <Text style={styles.planPlaceholder}>No saved plan yet. Answer below to create one.</Text>
           )
+        )}
+        {!!planFreshAt && (
+          <View style={[styles.savedCard,{ marginTop:8 }]}> 
+            <Text style={styles.savedTitle}>AI plan freshness</Text>
+            <Text style={styles.savedText}>Updated {formatUpdated(planFreshAt)}</Text>
+          </View>
         )}
         {renderQv2Summary()}
         <OptionRow label="Stress" options={choices.stress} value={stress} onChange={setStress} />

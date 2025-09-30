@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert, FlatList, useWindowDim
 import { useRouter } from "expo-router";
 import { auth, db } from "../firebase/firebaseConfig";
 import { doc, getDoc, setDoc } from "firebase/firestore";
+import { generateAndSavePlan } from "../src/services/planService";
 
 // Questionnaire schema v1
 // {
@@ -205,6 +206,10 @@ export default function PlanSetup() {
         questionnaireV2: payload,
         questionnaireUpdatedAt: Date.now(),
       }, { merge: true });
+      // Generate AI plan and schedule reminders based on preferred times
+      try {
+        await generateAndSavePlan({ forceRefresh: true, schedule: true });
+      } catch {}
       // Offer to set reminders if user selected preferred times
       if ((times || []).length > 0) {
         const suggestion = `You picked: ${times.join(', ')}. Do you want to set reminders now?`;

@@ -5,7 +5,7 @@ import { useRouter, Stack } from 'expo-router';
 import { useTheme } from '../src/theme/ThemeProvider';
 import PrimaryButton from '../src/components/PrimaryButton';
 import Card from '../src/components/Card';
-import { recommendWeeklyPlan, mergeCompletionIntoPlan, getCompletedMinutesToday } from '../src/services/planService';
+import { recommendWeeklyPlan, mergeCompletionIntoPlan, getCompletedMinutesToday, savePlanToUserDoc } from '../src/services/planService';
 import GradientBackground from '../src/components/GradientBackground';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -41,6 +41,8 @@ export default function YourPlanScreen(){
     try {
       setRegenerating(true);
       await load({ showSpinner:true, forceRefresh:true });
+      // Persist latest generated plan if available
+      if (plan) await savePlanToUserDoc(plan);
     } finally {
       setRegenerating(false);
     }
