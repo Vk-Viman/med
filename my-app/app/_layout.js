@@ -1,6 +1,6 @@
 ﻿import { Stack, useRouter, usePathname, useNavigation } from "expo-router";
-import React, { useEffect, useRef } from 'react';
-import { AppState, TouchableWithoutFeedback, View, Text, StyleSheet, DeviceEventEmitter, TouchableOpacity, Alert } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { AppState, TouchableWithoutFeedback, View, Text, StyleSheet, DeviceEventEmitter, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import AppLogo from "../src/components/AppLogo";
 import { getUserProfile, updateUserProfile } from '../src/services/userProfile';
 import { deleteAllMoodEntries, getRetentionDays, getRetentionLastRunTs, setRetentionLastRunTs, purgeMoodEntriesOlderThan } from '../src/services/moodEntries';
@@ -189,9 +189,48 @@ function ActivityWrapper({ children }){
 export default function Layout() {
   const router = useRouter();
   const pathname = usePathname();
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
+
+  // Tiny loading gate to prevent initial flicker while resolving auth + profile
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const user = auth.currentUser;
+        const path = pathname || '';
+        const publicPaths = new Set([
+          '/splash',
+          '/onboarding',
+          '/login',
+          '/signup',
+          '/forgotPassword',
+          '/biometricLogin',
+        ]);
+
+        if (!user) {
+          if (!publicPaths.has(path)) {
+            const flagged = await AsyncStorage.getItem('cs_onboarded');
+            if (cancelled) return;
+            router.replace(flagged ? '/login' : '/onboarding');
+          }
+        } else {
+          // Warm user profile (role) cache to reduce flicker on first guarded nav later
+          try { await getUserProfile(); } catch {}
+          if (path === '/splash' || path === '/login' || path === '/onboarding') {
+            router.replace('/(tabs)');
+          }
+        }
+      } catch {}
+      if (!cancelled) setIsBootstrapping(false);
+    })();
+    return () => { cancelled = true; };
+    // Run once on mount; avoid re-running on pathname changes for the loading gate
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Route guard: ensure unauthenticated users can't land on tabs/home directly
   useEffect(() => {
+    if (isBootstrapping) return; // Skip guard during initial bootstrap to avoid double redirects/flicker
     let cancelled = false;
     (async () => {
       try {
@@ -222,7 +261,7 @@ export default function Layout() {
       } catch {}
     })();
     return () => { cancelled = true; };
-  }, [pathname]);
+  }, [pathname, isBootstrapping]);
 
   const BackBtn = (props) => {
     const router = useRouter();
@@ -255,6 +294,13 @@ export default function Layout() {
   return (
     <ThemeProvider>
       <ActivityWrapper>
+      {isBootstrapping ? (
+        <View style={stylesLocalOnly.loadingWrap}>
+          <AppLogo size={64} style={{ marginBottom: 12 }} />
+          <ActivityIndicator size="small" color="#0288D1" />
+          <Text style={stylesLocalOnly.loadingTxt}>Loading…</Text>
+        </View>
+      ) : (
       <Stack initialRouteName="splash">
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="splash" options={{ headerShown: false }} />
@@ -277,6 +323,7 @@ export default function Layout() {
         <Stack.Screen name="plan-setup" options={{ title: "Plan Setup", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
         <Stack.Screen name="your-plan" options={{ title: "Your Plan", headerLeft: () => <BackBtn />, headerRight: () => <AppLogo size={28} style={{ marginRight: 8 }} /> }} />
       </Stack>
+      )}
       </ActivityWrapper>
     </ThemeProvider>
   );
@@ -286,5 +333,7 @@ const stylesLocalOnly = StyleSheet.create({
   badge:{ position:'absolute', bottom:16, right:16, backgroundColor:'#FF6F00', paddingHorizontal:12, paddingVertical:6, borderRadius:20, shadowColor:'#000', shadowOpacity:0.25, shadowRadius:4, elevation:4 },
   badgeText:{ color:'#fff', fontWeight:'800', fontSize:12, letterSpacing:0.5 }
   ,backBtn:{ paddingHorizontal:12, paddingVertical:6 },
-  backTxt:{ color:'#0288D1', fontSize:14, fontWeight:'700' }
+  backTxt:{ color:'#0288D1', fontSize:14, fontWeight:'700' },
+  loadingWrap:{ flex:1, alignItems:'center', justifyContent:'center', padding:24, gap:8 },
+  loadingTxt:{ marginTop:8, color:'#607D8B', fontSize:12 }
 });

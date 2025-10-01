@@ -11,7 +11,7 @@ import { collection, onSnapshot, query, where, Timestamp } from "firebase/firest
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams } from 'expo-router';
 import { Alert } from 'react-native';
-import { getMeditationById } from '../src/services/admin';
+import { getMeditationById } from '../src/services/meditations';
 
 export default function MeditationPlayerScreen() {
   const [selectedMeditation, setSelectedMeditation] = useState(null);

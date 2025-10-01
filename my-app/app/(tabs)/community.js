@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, FlatList, TextInput, Button, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { db, auth } from "../../firebase/firebaseConfig";
-import { collection, doc, addDoc, getDoc, getDocs, setDoc, query, where, orderBy, serverTimestamp, updateDoc, increment } from "firebase/firestore";
+import { collection, doc, addDoc, getDoc, getDocs, setDoc, query, where, orderBy, serverTimestamp, updateDoc, increment, limit } from "firebase/firestore";
 import { ensurePostIsSafe } from "../../src/moderation";
 import { updateUserStats, evaluateAndAwardBadges, awardFirstPostIfNeeded } from "../../src/badges";
 import { useTheme } from "../../src/theme/ThemeProvider";
@@ -15,12 +15,25 @@ export default function CommunityScreen() {
   const [posts, setPosts] = useState([]);
   const [message, setMessage] = useState("");
   const [leaderboard, setLeaderboard] = useState([]);
+  const [joinedMap, setJoinedMap] = useState({}); // { [challengeId]: { joined:true, minutes:number, rank:number|null, total:number|null } }
+  const [progressMap, setProgressMap] = useState({}); // { [challengeId]: percent }
+  const [feedMap, setFeedMap] = useState({}); // { [challengeId]: [feedItem,...] }
+  const [teamsMap, setTeamsMap] = useState({}); // { [challengeId]: [{ name, minutes }] }
+
+  const fmtDate = (ts)=>{
+    try{
+      const d = ts?.toDate ? ts.toDate() : (ts instanceof Date ? ts : null);
+      if(!d) return '';
+      return new Intl.DateTimeFormat(undefined, { month:'short', day:'numeric' }).format(d);
+    }catch{ return ''; }
+  };
 
   useEffect(() => {
     const load = async () => {
       // Load active challenges
       const chSnap = await getDocs(collection(db, "challenges"));
-      setChallenges(chSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const chDocs = chSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setChallenges(chDocs);
       // Load user badges
       if (auth.currentUser) {
         const bSnap = await getDocs(collection(db, "users", auth.currentUser.uid, "badges"));
@@ -38,53 +51,82 @@ export default function CommunityScreen() {
         rows.sort((a,b) => b.minutes - a.minutes);
         setLeaderboard(rows.slice(0,5));
       }
+
+      // Per-challenge joins, rank, progress, and recent feed (read-only)
+      const jm = {};
+      const pm = {};
+      const fm = {};
+      const uid = auth.currentUser?.uid;
+      for (const ch of chDocs) {
+        try {
+          // Joined status & minutes
+          let joined = false; let minutes = 0; let rank = null; let total = null;
+          let completed = false;
+          if (uid) {
+            const pref = doc(db, 'challenges', ch.id, 'participants', uid);
+            const pd = await getDoc(pref);
+            if (pd.exists()) { joined = true; minutes = Number(pd.data()?.minutes||0); completed = !!pd.data()?.completed; }
+          }
+          // Rank calculation
+          try {
+            const psnap = await getDocs(collection(db, 'challenges', ch.id, 'participants'));
+            const rows = psnap.docs.map(d=>({ uid:d.id, minutes:Number(d.data()?.minutes||0) }));
+            rows.sort((a,b)=>b.minutes-a.minutes);
+            total = rows.length;
+            if (uid) {
+              const idx = rows.findIndex(r=>r.uid===uid);
+              rank = idx>=0 ? (idx+1) : null;
+            }
+          } catch {}
+
+          // Progress: Prefer goal-based, fallback to time-based
+          const now = Date.now();
+          const startAt = ch.startAt?.toDate ? ch.startAt.toDate().getTime() : null;
+          const endAt = ch.endAt?.toDate ? ch.endAt.toDate().getTime() : null;
+          const goal = Number(ch.goalMinutes || ch.targetMinutes || 0);
+          let percent = 0;
+          if (joined && goal>0) {
+            percent = Math.max(0, Math.min(100, Math.round((minutes / goal) * 100)));
+          } else if (startAt && endAt && endAt>startAt) {
+            percent = Math.max(0, Math.min(100, Math.round(((now - startAt) / (endAt - startAt)) * 100)));
+          }
+          jm[ch.id] = { joined, minutes, rank, total, completed };
+          pm[ch.id] = percent;
+
+          // Recent feed
+          try {
+            const fsnap = await getDocs(query(collection(db, 'challenges', ch.id, 'feed'), orderBy('createdAt','desc'), limit(3)));
+            fm[ch.id] = fsnap.docs.map(d=>({ id:d.id, ...d.data() }));
+          } catch { fm[ch.id] = []; }
+
+          // Teams (read-only)
+          try {
+            const tsnap = await getDocs(collection(db, 'challenges', ch.id, 'teams'));
+            const teams = tsnap.docs.map(d=>{
+              const data = d.data()||{};
+              return { id:d.id, name:data.name||data.title||d.id, minutes:Number(data.totalMinutes||data.minutes||0) };
+            });
+            teams.sort((a,b)=> b.minutes - a.minutes);
+            teamsMap[ch.id] = teams.slice(0,3);
+          } catch { teamsMap[ch.id] = []; }
+        } catch { /* noop per challenge to keep UI resilient */ }
+      }
+      setJoinedMap(jm);
+      setProgressMap(pm);
+      setFeedMap(fm);
+      setTeamsMap(teamsMap);
     };
     load();
   }, []);
 
-  const seedSampleData = async () => {
-    try {
-      // Create a couple of challenges if none exist
-      const chSnap = await getDocs(collection(db, "challenges"));
-      if (chSnap.empty) {
-        await addDoc(collection(db, "challenges"), {
-          title: "Weekly Calm Challenge",
-          description: "Meditate 10 minutes daily for 7 days.",
-          period: "weekly",
-          createdAt: serverTimestamp(),
-        });
-        await addDoc(collection(db, "challenges"), {
-          title: "Monthly Mindfulness Marathon",
-          description: "Accumulate 300 minutes this month.",
-          period: "monthly",
-          createdAt: serverTimestamp(),
-        });
-      }
-      // Give current user a starter badge
-      if (auth.currentUser) {
-        await setDoc(doc(db, "users", auth.currentUser.uid, "badges", "starter"), {
-          name: "Getting Started",
-          awardedAt: serverTimestamp(),
-        }, { merge: true });
-      }
-      Alert.alert("Seeded", "Sample challenges and starter badge are set.");
-      // Reload
-      const refetchCh = await getDocs(collection(db, "challenges"));
-      setChallenges(refetchCh.docs.map(d => ({ id: d.id, ...d.data() })));
-      if (auth.currentUser) {
-        const bSnap = await getDocs(collection(db, "users", auth.currentUser.uid, "badges"));
-        setBadges(bSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      }
-    } catch (e) {
-      Alert.alert("Error", e.message);
-    }
-  };
+  // Note: Admin-only actions like seeding/reset live in the Admin area now.
 
   const joinChallenge = async (challengeId) => {
     if (!auth.currentUser) return Alert.alert("Login required", "Please sign in to join challenges.");
     const ref = doc(db, "challenges", challengeId, "participants", auth.currentUser.uid);
     await setDoc(ref, { minutes: 0, joinedAt: serverTimestamp() }, { merge: true });
     Alert.alert("Joined", "You joined the challenge!");
+    setJoinedMap((m)=>({ ...m, [challengeId]: { ...(m[challengeId]||{}), joined:true, minutes:0 } }));
   };
 
   const addMeditationMinutes = async (challengeId, mins=10) => {
@@ -96,6 +138,24 @@ export default function CommunityScreen() {
   // Update user aggregate stats and award badges
   await updateUserStats(auth.currentUser.uid, { minutesDelta: mins });
   await evaluateAndAwardBadges(auth.currentUser.uid);
+  setJoinedMap((m)=>{
+    const cur = m[challengeId] || { joined:true, minutes:0 };
+    return { ...m, [challengeId]: { ...cur, joined:true, minutes:(cur.minutes||0)+mins } };
+  });
+
+  // If goal reached, mark completed in participant doc (self-write allowed by rules)
+  try {
+    const ch = challenges.find(c=> c.id===challengeId);
+    const goal = Number(ch?.goalMinutes || ch?.targetMinutes || 0);
+    if (goal>0) {
+      const after = (joinedMap[challengeId]?.minutes||0) + mins;
+      if (after >= goal && !joinedMap[challengeId]?.completed) {
+        await setDoc(ref, { completed: true, completedAt: serverTimestamp() }, { merge: true });
+        setJoinedMap((m)=> ({ ...m, [challengeId]: { ...(m[challengeId]||{}), completed:true } }));
+        Alert.alert('Congrats!', 'Challenge goal reached. Great job!');
+      }
+    }
+  } catch {}
   };
 
   const submitPost = async () => {
@@ -121,8 +181,6 @@ export default function CommunityScreen() {
   return (
     <SafeAreaView style={styles.container}>
   <Text style={styles.title}>Community</Text>
-  <Button title="Create sample data" onPress={seedSampleData} />
-  <View style={{ height: 8 }} />
 
       <Text style={styles.section}>Group Challenges</Text>
       <FlatList
@@ -133,9 +191,47 @@ export default function CommunityScreen() {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{item.title}</Text>
             <Text style={styles.cardText}>{item.description}</Text>
-            <Button title="Join" onPress={() => joinChallenge(item.id)} />
+            <Text style={styles.meta}>
+              {item.startAt ? fmtDate(item.startAt) : '—'}
+              {item.endAt ? ` → ${fmtDate(item.endAt)}` : ''}
+              {item.goalMinutes || item.targetMinutes ? `  • Goal ${(item.goalMinutes||item.targetMinutes)}m` : ''}
+            </Text>
+            {item.teamEnabled && (
+              <View style={styles.flag}><Text style={styles.flagTxt}>Teams enabled</Text></View>
+            )}
+            <View style={styles.progressBar} accessibilityLabel={`Progress ${progressMap[item.id]||0}%`}>
+              <View style={[styles.progressFill,{ width: `${progressMap[item.id]||0}%` }]} />
+            </View>
+            {joinedMap[item.id]?.joined ? (
+              <Text style={styles.joinedTxt}>
+                {joinedMap[item.id]?.completed ? 'Completed! ' : 'Joined • '}
+                {joinedMap[item.id]?.rank ? `Rank #${joinedMap[item.id].rank} of ${joinedMap[item.id].total||'—'}` : 'Tracking...'} • {joinedMap[item.id]?.minutes||0}m
+              </Text>
+            ) : (
+              <Text style={styles.joinedTxt}>Not joined</Text>
+            )}
             <View style={{ height: 6 }} />
-            <Button title="+10 min" onPress={() => addMeditationMinutes(item.id, 10)} />
+            <Button title={joinedMap[item.id]?.joined? "Joined" : "Join"} onPress={() => joinChallenge(item.id)} disabled={joinedMap[item.id]?.joined} />
+            <View style={{ height: 6 }} />
+            <Button title="+10 min" onPress={() => addMeditationMinutes(item.id, 10)} disabled={!joinedMap[item.id]?.joined} />
+            {Array.isArray(teamsMap[item.id]) && teamsMap[item.id].length>0 && (
+              <View style={{ marginTop: 8 }}>
+                <Text style={styles.section}>Top Teams</Text>
+                {teamsMap[item.id].map((t, idx)=> (
+                  <View key={t.id} style={styles.teamItem}><Text style={styles.teamTxt}>{idx+1}. {t.name} • {t.minutes}m</Text></View>
+                ))}
+              </View>
+            )}
+            {Array.isArray(feedMap[item.id]) && feedMap[item.id].length>0 && (
+              <View style={{ marginTop: 8 }}>
+                <Text style={styles.section}>Updates</Text>
+                {feedMap[item.id].map((f)=> (
+                  <View key={f.id} style={styles.feedItem}>
+                    <Text style={styles.feedTxt}>{f.text || f.title || 'Update'}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
         )}
       />
@@ -185,9 +281,19 @@ const createStyles = (colors) => StyleSheet.create({
   card: { padding: 12, backgroundColor: colors.card, borderRadius: 12, marginRight: 10, width: 220 },
   cardTitle: { fontWeight: "700", marginBottom: 4, color: colors.text },
   cardText: { color: colors.textMuted, marginBottom: 8 },
+  meta: { color: colors.textMuted, fontSize: 12, marginBottom: 6 },
   badge: { padding: 10, backgroundColor: colors.bg === '#0B1722' ? '#1b2b3b' : '#E3F2FD', borderRadius: 20, marginRight: 8 },
   postRow: { flexDirection: "row", alignItems: "center", marginVertical: 8 },
   input: { flex: 1, borderWidth: 1, borderColor: colors.bg === '#0B1722' ? '#345' : '#ddd', borderRadius: 8, padding: 8, marginRight: 8, color: colors.text, backgroundColor: colors.bg === '#0B1722' ? '#0F1E2C' : '#ffffff' },
   post: { backgroundColor: colors.card, padding: 10, borderRadius: 10, marginVertical: 6 },
-  anon: { color: colors.textMuted, fontSize: 12, marginBottom: 4 }
+  anon: { color: colors.textMuted, fontSize: 12, marginBottom: 4 },
+  progressBar: { height: 6, backgroundColor: colors.bg === '#0B1722' ? '#253445' : '#E3F2FD', borderRadius: 4, overflow: 'hidden', marginBottom: 6 },
+  progressFill: { height: '100%', backgroundColor: colors.primary || '#0288D1' },
+  joinedTxt: { color: colors.textMuted, fontSize: 12 },
+  flag: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, backgroundColor: colors.bg === '#0B1722' ? '#1b2b3b' : '#E0F7FA', borderRadius: 12, marginBottom: 6 },
+  flagTxt: { color: colors.textMuted, fontSize: 11 },
+  feedItem: { backgroundColor: colors.bg === '#0B1722' ? '#152231' : '#F5FBFF', padding: 8, borderRadius: 8, marginTop: 6 },
+  feedTxt: { color: colors.text },
+  teamItem: { backgroundColor: colors.bg === '#0B1722' ? '#10202f' : '#E8F6FF', padding: 6, borderRadius: 8, marginTop: 4 },
+  teamTxt: { color: colors.text }
 });

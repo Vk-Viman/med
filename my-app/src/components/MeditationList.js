@@ -4,13 +4,10 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { addDownloadListener } from '../utils/downloadEvents';
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { auth } from "../../firebase/firebaseConfig";
+import { listMeditations as listMedsSvc, subscribeMeditations } from "../services/meditations";
 
-const meditations = [
-  { id: 1, title: "Morning Calm", category: "Morning", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" },
-  { id: 2, title: "Stress Relief", category: "Stress", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3" },
-  { id: 3, title: "Deep Relaxation", category: "Relaxation", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3" }
-];
-const CATEGORIES = ["All", "Favorites", ...Array.from(new Set(meditations.map(m => m.category)))];
+// Dynamic list from Firestore (admin-managed)
+// Shape: { id, title, category, url, duration?, bgSound?, createdAt? }
 
 function Item({ med, selected, onPress, onToggleFavorite, isFav, isOffline }) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -56,6 +53,7 @@ export default function MeditationList({ onSelect, selected }) {
   const [category, setCategory] = useState("All");
   const [favorites, setFavorites] = useState([]);
   const [offlineMap, setOfflineMap] = useState({});
+  const [medList, setMedList] = useState([]);
 
   const sanitize = (s)=> String(s||'med').replace(/[^a-zA-Z0-9_-]/g, '_');
   const pathFor = (m)=> `${(FileSystem.documentDirectory||'')}meditations/${sanitize(m.id || m.docId || m.url || 'med')}.mp3`;
@@ -65,7 +63,7 @@ export default function MeditationList({ onSelect, selected }) {
     try{
       const dir = `${FileSystem.documentDirectory||''}meditations`;
       try{ const info = await FileSystem.getInfoAsync(dir); if(!info.exists) { setOfflineMap({}); return; } } catch { setOfflineMap({}); return; }
-      const entries = await Promise.all(meditations.map(async m => {
+      const entries = await Promise.all(medList.map(async m => {
         const p = pathFor(m);
         try{ const info = await FileSystem.getInfoAsync(p); return [m.id, !!info.exists && (info.size??0)>0]; } catch { return [m.id, false]; }
       }));
@@ -74,7 +72,17 @@ export default function MeditationList({ onSelect, selected }) {
     }catch{ setOfflineMap({}); }
   };
 
-  useEffect(()=>{ refreshOffline(); const unsub = addDownloadListener(()=> refreshOffline()); return ()=> { try{unsub();}catch{} }; },[]);
+  useEffect(()=>{ refreshOffline(); const unsub = addDownloadListener(()=> refreshOffline()); return ()=> { try{unsub();}catch{} }; },[medList]);
+
+  // Load and subscribe to admin-managed meditations so user list reflects changes
+  useEffect(()=>{
+    let unsub = null;
+    (async ()=>{
+      try { setMedList(await listMedsSvc({ limit: 200 })); } catch {}
+      try { unsub = subscribeMeditations(setMedList, { limit: 200 }); } catch {}
+    })();
+    return ()=> { try { unsub && unsub(); } catch {} };
+  },[]);
 
   useEffect(() => {
     (async () => {
@@ -93,9 +101,15 @@ export default function MeditationList({ onSelect, selected }) {
     try { await AsyncStorage.setItem(favKey, JSON.stringify(next)); } catch {}
   };
 
+  const categories = useMemo(() => [
+    "All",
+    "Favorites",
+    ...Array.from(new Set((medList||[]).map(m => m.category).filter(Boolean)))
+  ], [medList]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return meditations.filter(m => {
+    return medList.filter(m => {
       const matchesCategory =
         category === "All"
           ? true
@@ -105,7 +119,7 @@ export default function MeditationList({ onSelect, selected }) {
       const matchesQuery = q.length === 0 || m.title.toLowerCase().includes(q);
       return matchesCategory && matchesQuery;
     });
-  }, [query, category, favorites]);
+  }, [query, category, favorites, medList]);
 
   return (
     <View style={styles.wrapper}>
@@ -117,7 +131,7 @@ export default function MeditationList({ onSelect, selected }) {
         returnKeyType="search"
       />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categories}>
-        {CATEGORIES.map(cat => (
+        {categories.map(cat => (
           <TouchableOpacity
             key={cat}
             style={[styles.chip, category === cat && styles.chipActive]}

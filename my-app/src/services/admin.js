@@ -105,6 +105,36 @@ export async function clearFlag(id){
   await deleteDoc(doc(db, `flagged_posts/${id}`));
 }
 
+// CHALLENGES (user-visible)
+export async function listChallenges(){
+  const snap = await getDocs(query(collection(db, 'challenges'), orderBy('createdAt','desc')));
+  const rows = []; snap.forEach(d=> rows.push({ id:d.id, ...d.data() }));
+  return rows;
+}
+export async function createChallenge({ title, description, startAt, endAt, goalMinutes, teamEnabled=false, rewardPoints=0, rewardBadge='' }){
+  const payload = {
+    title: title||'Untitled',
+    description: description||'',
+    startAt: startAt || null,
+    endAt: endAt || null,
+    goalMinutes: typeof goalMinutes==='number'? goalMinutes : (goalMinutes? Number(goalMinutes): null),
+    teamEnabled: !!teamEnabled,
+    rewardPoints: Number(rewardPoints||0),
+    rewardBadge: String(rewardBadge||''),
+    createdAt: new Date(),
+  };
+  await addDoc(collection(db, 'challenges'), payload);
+}
+export async function updateChallenge(id, patch){
+  await updateDoc(doc(db, `challenges/${id}`), { ...patch, updatedAt: new Date() });
+}
+export async function deleteChallenge(id){
+  await deleteDoc(doc(db, `challenges/${id}`));
+}
+export async function postChallengeUpdate(challengeId, { text }){
+  await addDoc(collection(db, `challenges/${challengeId}/feed`), { text: String(text||'Update'), createdAt: new Date() });
+}
+
 // USER MOOD META (privacy-preserving: metadata only)
 export async function listUserMoodMeta(uid, { limit=25 } = {}){
   const ref = collection(db, `users/${uid}/moods`);
