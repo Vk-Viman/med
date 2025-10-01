@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, FlatList, TextInput, Button, Alert } from "react-native";
+import { View, Text, StyleSheet, FlatList, TextInput, Button, Alert, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { db, auth } from "../../firebase/firebaseConfig";
 import { collection, doc, addDoc, getDoc, getDocs, setDoc, query, where, orderBy, serverTimestamp, updateDoc, increment, limit } from "firebase/firestore";
@@ -19,6 +19,7 @@ export default function CommunityScreen() {
   const [progressMap, setProgressMap] = useState({}); // { [challengeId]: percent }
   const [feedMap, setFeedMap] = useState({}); // { [challengeId]: [feedItem,...] }
   const [teamsMap, setTeamsMap] = useState({}); // { [challengeId]: [{ name, minutes }] }
+  const [userTeamMap, setUserTeamMap] = useState({}); // { [challengeId]: teamId }
 
   const fmtDate = (ts)=>{
     try{
@@ -109,12 +110,21 @@ export default function CommunityScreen() {
             teams.sort((a,b)=> b.minutes - a.minutes);
             teamsMap[ch.id] = teams.slice(0,3);
           } catch { teamsMap[ch.id] = []; }
+          // If joined, remember current teamId
+          try {
+            if (uid && joined) {
+              const pd = await getDoc(doc(db, 'challenges', ch.id, 'participants', uid));
+              const teamId = pd.exists() ? (pd.data()?.teamId || null) : null;
+              if (teamId) userTeamMap[ch.id] = teamId;
+            }
+          } catch {}
         } catch { /* noop per challenge to keep UI resilient */ }
       }
       setJoinedMap(jm);
       setProgressMap(pm);
       setFeedMap(fm);
       setTeamsMap(teamsMap);
+      setUserTeamMap(userTeamMap);
     };
     load();
   }, []);
@@ -180,6 +190,7 @@ export default function CommunityScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+  <ScrollView contentContainerStyle={{ paddingBottom: 48 }}>
   <Text style={styles.title}>Community</Text>
 
       <Text style={styles.section}>Group Challenges</Text>
@@ -220,6 +231,22 @@ export default function CommunityScreen() {
                 {teamsMap[item.id].map((t, idx)=> (
                   <View key={t.id} style={styles.teamItem}><Text style={styles.teamTxt}>{idx+1}. {t.name} • {t.minutes}m</Text></View>
                 ))}
+                {joinedMap[item.id]?.joined && (
+                  <View style={{ marginTop:8 }}>
+                    <Text style={styles.section}>Your Team</Text>
+                    <View style={{ flexDirection:'row', flexWrap:'wrap', gap:6 }}>
+                      {teamsMap[item.id].map(t => (
+                        <Button key={t.id} title={userTeamMap[item.id]===t.id? `✓ ${t.name}` : t.name} onPress={async ()=>{
+                          try {
+                            const pref = doc(db, 'challenges', item.id, 'participants', auth.currentUser.uid);
+                            await setDoc(pref, { teamId: t.id }, { merge: true });
+                            setUserTeamMap(m=> ({ ...m, [item.id]: t.id }));
+                          } catch {}
+                        }} />
+                      ))}
+                    </View>
+                  </View>
+                )}
               </View>
             )}
             {Array.isArray(feedMap[item.id]) && feedMap[item.id].length>0 && (
@@ -261,16 +288,15 @@ export default function CommunityScreen() {
         <TextInput style={styles.input} value={message} onChangeText={setMessage} placeholder="Share your thoughts anonymously..." placeholderTextColor={theme.textMuted} />
         <Button title="Post" onPress={submitPost} />
       </View>
-      <FlatList
-        data={posts}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View style={styles.post}>
+      <View>
+        {posts.map((item) => (
+          <View key={item.id} style={styles.post}>
             <Text style={styles.anon}>{item.anonId || "anon"}</Text>
             <Text style={{ color: theme.text }}>{item.text}</Text>
           </View>
-        )}
-      />
+        ))}
+      </View>
+  </ScrollView>
     </SafeAreaView>
   );
 }

@@ -30,7 +30,8 @@ export function wireForegroundHandler(){
   // Example: show in-app banner or just no-op; expo-notifications displays system notifications by default
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
       shouldPlaySound: true,
       shouldSetBadge: false,
     }),

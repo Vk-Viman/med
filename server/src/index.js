@@ -27,7 +27,7 @@ try {
 }
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const BASE_PORT = Number(process.env.PORT || 3000);
 
 app.use(cors({ origin: '*'}));
 app.use(express.json({ limit: '1mb' }));
@@ -336,4 +336,18 @@ function buildFallbackPlan(input, { forceRefresh = false } = {}){
   return { version: 'v1-fallback', rationale: forceRefresh ? 'Refreshed fallback plan with slight variation.' : 'Fallback plan based on availability and generic themes.', week: days.map((day,i)=> { const m = Math.max(5, perDay + deltaPattern[i % deltaPattern.length]); return ({ day, totalMinutes: m, blocks: blocks(i) }); }) };
 }
 
-app.listen(PORT, () => console.log(`CalmSpace server listening on :${PORT}`));
+// Start server, if port is busy, try next few ports
+function startServer(port, attemptsLeft = 5){
+  const server = app.listen(port, () => console.log(`CalmSpace server listening on :${port}`));
+  server.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE' && attemptsLeft > 0) {
+      const nextPort = port + 1;
+      console.warn(`Port ${port} in use, retrying on ${nextPort}...`);
+      startServer(nextPort, attemptsLeft - 1);
+    } else {
+      console.error('Server failed to start:', err);
+      process.exit(1);
+    }
+  });
+}
+startServer(BASE_PORT);

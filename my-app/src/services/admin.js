@@ -1,6 +1,7 @@
 import { auth, db, storage } from '../../firebase/firebaseConfig';
 import { collection, doc, getDoc, getDocs, query, orderBy, where, limit as qlimit, updateDoc, setDoc, addDoc, deleteDoc, getCountFromServer } from 'firebase/firestore';
-import { ref, uploadString, getDownloadURL } from 'firebase/storage';
+import { ref, uploadString, getDownloadURL, uploadBytes } from 'firebase/storage';
+import * as FileSystem from 'expo-file-system';
 
 // USERS
 export async function listUsers({ limit=100 } = {}){
@@ -135,6 +136,39 @@ export async function postChallengeUpdate(challengeId, { text }){
   await addDoc(collection(db, `challenges/${challengeId}/feed`), { text: String(text||'Update'), createdAt: new Date() });
 }
 
+// Teams management within a challenge
+export async function listTeams(challengeId){
+  const snap = await getDocs(collection(db, `challenges/${challengeId}/teams`));
+  const rows = []; snap.forEach(d=> rows.push({ id:d.id, ...d.data() }));
+  return rows;
+}
+export async function upsertTeam(challengeId, teamId, data){
+  if (teamId) {
+    await setDoc(doc(db, `challenges/${challengeId}/teams/${teamId}`), { ...data, updatedAt: new Date() }, { merge: true });
+  } else {
+    await addDoc(collection(db, `challenges/${challengeId}/teams`), { ...data, createdAt: new Date() });
+  }
+}
+export async function deleteTeam(challengeId, teamId){
+  await deleteDoc(doc(db, `challenges/${challengeId}/teams/${teamId}`));
+}
+
+// Reward fulfillment: award badge and/or add points to user profile upon completion
+export async function fulfillChallengeReward({ challengeId, uid, badgeId, badgeName, points=0 }){
+  // Writes across user profile and badges; admin-only
+  if (!uid) return false;
+  try {
+    if (points && points>0) {
+      await setDoc(doc(db, `users/${uid}/stats/aggregate`), { points: (points) }, { merge: true });
+    }
+    if (badgeId && badgeName) {
+      await setDoc(doc(db, `users/${uid}/badges/${badgeId}`), { name: badgeName, awardedAt: new Date() }, { merge: true });
+    }
+    await addDoc(collection(db, 'admin_audit_logs'), { action:'fulfill_challenge_reward', targetUid: uid, meta: { challengeId, badgeId, points }, at: new Date() });
+    return true;
+  } catch { return false; }
+}
+
 // USER MOOD META (privacy-preserving: metadata only)
 export async function listUserMoodMeta(uid, { limit=25 } = {}){
   const ref = collection(db, `users/${uid}/moods`);
@@ -215,4 +249,45 @@ export async function logAdminAction({ action, targetUid, meta }){
   try {
     await addDoc(collection(db, 'admin_audit_logs'), { action, targetUid: targetUid||null, actorUid, meta: meta||{}, at: new Date() });
   } catch {}
+}
+
+// Upload audio to Firebase Storage and return a public URL
+export async function uploadMeditationAudio({ uri, filename }){
+  if (!uri) throw new Error('Missing file URI');
+  const ts = Date.now();
+  const name = filename || `med_${ts}.mp3`;
+  const r = ref(storage, `meditations/${name}`);
+  // Prefer base64 for content:// URIs on Android
+  try {
+    if (uri.startsWith('content://') || uri.startsWith('file://')) {
+      let readUri = uri;
+      // On Android, some content:// need to be copied to cache with an extension
+      if (uri.startsWith('content://') && FileSystem.copyAsync) {
+        const ext = name.includes('.') ? name.split('.').pop() : 'mp3';
+        const dest = `${FileSystem.cacheDirectory}upload_${ts}.${ext}`;
+        try { await FileSystem.copyAsync({ from: uri, to: dest }); readUri = dest; } catch {}
+      }
+      const base64 = await FileSystem.readAsStringAsync(readUri, { encoding: FileSystem.EncodingType.Base64 });
+      const contentType = name.toLowerCase().endsWith('.m4a') ? 'audio/mp4' : name.toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/mpeg';
+      await uploadString(r, base64, 'base64', { contentType });
+    } else {
+      // http(s) uri
+      const res = await fetch(uri);
+      const blob = await res.blob();
+      await uploadBytes(r, blob, { contentType: blob.type || 'audio/mpeg' });
+    }
+  } catch (e) {
+    // Fallback: try fetch->blob even for content:// if supported
+    try {
+      const res = await fetch(uri);
+      const blob = await res.blob();
+      await uploadBytes(r, blob, { contentType: blob.type || 'audio/mpeg' });
+    } catch (e2) {
+      const msg = e?.message || e2?.message || 'Unknown';
+      throw new Error(`Upload failed: ${msg}`);
+    }
+  }
+  const url = await getDownloadURL(r);
+  await logAdminAction({ action:'upload_meditation_audio', meta: { path: `meditations/${name}` } });
+  return url;
 }

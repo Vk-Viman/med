@@ -11,6 +11,8 @@ export async function registerPushTokens({ force = false } = {}){
     const user = auth.currentUser; if (!user) return { ok:false, reason:'no-auth' };
     const now = Date.now();
     if (!force && now - lastRegistered < 10 * 60 * 1000) return { ok:true, reason:'cached' };
+    // Expo Go on Android no longer supports remote push (SDK 53+)
+    const isExpoGoAndroid = Platform.OS === 'android' && Constants?.appOwnership === 'expo';
 
     // Ask permissions (Android 13+ requires POST_NOTIFICATIONS)
     const { status } = await Notifications.requestPermissionsAsync();
@@ -19,7 +21,7 @@ export async function registerPushTokens({ force = false } = {}){
     // Device push token (FCM on Android when google-services is configured)
     let fcmToken = null;
     try {
-      if (Platform.OS === 'android') {
+      if (Platform.OS === 'android' && !isExpoGoAndroid) {
         const devTok = await Notifications.getDevicePushTokenAsync();
         // devTok: { type: 'fcm', data: '<token>' }
         fcmToken = devTok?.data || null;
@@ -29,8 +31,9 @@ export async function registerPushTokens({ force = false } = {}){
     // Expo push token as fallback and for testing via Expo push service
     let expoToken = null;
     try {
-      const projectId = Constants?.expoConfig?.extra?.eas?.projectId || Constants?.easConfig?.projectId;
-      const { data } = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
+      const projectId = Constants?.expoConfig?.extra?.eas?.projectId || Constants?.easConfig?.projectId || Constants?.expoConfig?.projectId;
+      const params = projectId ? { projectId } : undefined;
+      const { data } = await Notifications.getExpoPushTokenAsync(params);
       expoToken = data;
     } catch {}
 
