@@ -1,7 +1,7 @@
 import { auth, db, storage } from '../../firebase/firebaseConfig';
 import { collection, doc, getDoc, getDocs, query, orderBy, where, limit as qlimit, updateDoc, setDoc, addDoc, deleteDoc, getCountFromServer } from 'firebase/firestore';
-import { ref, uploadString, getDownloadURL, uploadBytes } from 'firebase/storage';
-import * as FileSystem from 'expo-file-system';
+import { ref, getDownloadURL, uploadString } from 'firebase/storage';
+import * as FileSystem from 'expo-file-system/legacy';
 
 // USERS
 export async function listUsers({ limit=100 } = {}){
@@ -257,37 +257,41 @@ export async function uploadMeditationAudio({ uri, filename }){
   const ts = Date.now();
   const name = filename || `med_${ts}.mp3`;
   const r = ref(storage, `meditations/${name}`);
-  // Prefer base64 for content:// URIs on Android
+  // Uniform base64 upload path to avoid Blob issues in RN
+  const guessType = (n) => {
+    const low = (n||'').toLowerCase();
+    if (low.endsWith('.m4a')) return 'audio/mp4';
+    if (low.endsWith('.wav')) return 'audio/wav';
+    if (low.endsWith('.aac')) return 'audio/aac';
+    if (low.endsWith('.ogg')) return 'audio/ogg';
+    return 'audio/mpeg';
+  };
   try {
+    let readUri = uri;
+    let ext = 'mp3';
+    const nameParts = name.split('.');
+    if (nameParts.length>1) ext = nameParts.pop();
+
     if (uri.startsWith('content://') || uri.startsWith('file://')) {
-      let readUri = uri;
-      // On Android, some content:// need to be copied to cache with an extension
-      if (uri.startsWith('content://') && FileSystem.copyAsync) {
-        const ext = name.includes('.') ? name.split('.').pop() : 'mp3';
-        const dest = `${FileSystem.cacheDirectory}upload_${ts}.${ext}`;
-        try { await FileSystem.copyAsync({ from: uri, to: dest }); readUri = dest; } catch {}
-      }
-      const base64 = await FileSystem.readAsStringAsync(readUri, { encoding: FileSystem.EncodingType.Base64 });
-      const contentType = name.toLowerCase().endsWith('.m4a') ? 'audio/mp4' : name.toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/mpeg';
-      await uploadString(r, base64, 'base64', { contentType });
-    } else {
-      // http(s) uri
-      const res = await fetch(uri);
-      const blob = await res.blob();
-      await uploadBytes(r, blob, { contentType: blob.type || 'audio/mpeg' });
+      // Copy to cache to ensure accessible path with extension
+      const dest = `${FileSystem.cacheDirectory}upload_${ts}.${ext}`;
+      try { await FileSystem.copyAsync({ from: uri, to: dest }); readUri = dest; } catch { readUri = uri; }
+    } else if (uri.startsWith('http://') || uri.startsWith('https://')) {
+      // Download remote file to cache first
+      const dest = `${FileSystem.cacheDirectory}download_${ts}.${ext}`;
+      const dl = await FileSystem.downloadAsync(uri, dest);
+      readUri = dl?.uri || dest;
     }
+
+    // Read as base64 and upload via Firebase SDK (no Blob path)
+    const base64 = await FileSystem.readAsStringAsync(readUri, { encoding: 'base64' });
+    const contentType = guessType(name);
+    await uploadString(r, base64, 'base64', { contentType });
   } catch (e) {
-    // Fallback: try fetch->blob even for content:// if supported
-    try {
-      const res = await fetch(uri);
-      const blob = await res.blob();
-      await uploadBytes(r, blob, { contentType: blob.type || 'audio/mpeg' });
-    } catch (e2) {
-      const msg = e?.message || e2?.message || 'Unknown';
-      throw new Error(`Upload failed: ${msg}`);
-    }
+    const msg = e?.message || 'Unknown';
+    throw new Error(`Upload failed: ${msg}`);
   }
-  const url = await getDownloadURL(r);
+  const finalUrl = await getDownloadURL(ref(storage, `meditations/${name}`));
   await logAdminAction({ action:'upload_meditation_audio', meta: { path: `meditations/${name}` } });
-  return url;
+  return finalUrl;
 }

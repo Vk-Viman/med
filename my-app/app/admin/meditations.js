@@ -1,9 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import PrimaryButton from '../../src/components/PrimaryButton';
-import { listMeditations, createMeditation, updateMeditation, deleteMeditation, uploadMeditationAudio } from '../../src/services/admin';
-import * as DocumentPicker from 'expo-document-picker';
+import { listMeditations, createMeditation, updateMeditation, deleteMeditation } from '../../src/services/admin';
 
 export default function AdminMeditations(){
   const { theme } = useTheme();
@@ -13,28 +12,36 @@ export default function AdminMeditations(){
   const [category, setCategory] = useState('Calm');
   const [bgSound, setBgSound] = useState('Rain');
   const [audioUrl, setAudioUrl] = useState('');
-  const pickAndUpload = async ()=>{
-    try {
-      const res = await DocumentPicker.getDocumentAsync({ type: ['audio/*'], multiple: false, copyToCacheDirectory: true });
-      if (res.canceled) return;
-      const file = res.assets?.[0] || res;
-      const uri = file.uri || file?.asset?.uri;
-      const name = file.name || `med_${Date.now()}.mp3`;
-      if (!uri) return Alert.alert('Pick failed','No file URI available.');
-      const url = await uploadMeditationAudio({ uri, filename: name });
-      setAudioUrl(url);
-      Alert.alert('Uploaded','Audio uploaded and URL filled.');
-    } catch (e) {
-      let msg = String(e?.message || e);
-      if (/Cannot find module|Unable to resolve module/i.test(msg)) {
-        msg = 'Document Picker is not installed in this app build. On Expo Go, ensure the expo-document-picker version matches SDK 54. For a Production/Dev Build, add expo-document-picker and rebuild.';
-      }
-      Alert.alert('Upload failed', msg);
-    }
-  };
+  const [testing, setTesting] = useState(false);
+  const soundRef = useRef(null);
 
   const load = async()=>{ try { const rows = await listMeditations(); setItems(rows); } catch{} };
   useEffect(()=>{ load(); },[]);
+
+  useEffect(()=>{
+    return () => { (async()=>{ try { if (soundRef.current) { await soundRef.current.unloadAsync(); soundRef.current = null; } } catch {} })(); };
+  },[]);
+
+  const testPlay = async ()=>{
+    try {
+      if (!audioUrl || !/^https?:\/\//.test(audioUrl)) return Alert.alert('Validation','Provide a valid https audio URL');
+      setTesting(true);
+      let AudioNS = null;
+      try { const m = await import('expo-audio'); AudioNS = m?.Audio || m; } catch {}
+      if (!AudioNS || !AudioNS.Sound) {
+        try { const m2 = await import('expo-av'); AudioNS = m2?.Audio; } catch {}
+      }
+      if (!AudioNS || !AudioNS.Sound) throw new Error('Audio module not available in this build');
+      try { await AudioNS.setAudioModeAsync?.({ playsInSilentModeIOS: true }); } catch {}
+      if (soundRef.current) { try { await soundRef.current.unloadAsync(); } catch {} soundRef.current = null; }
+      const { sound } = await AudioNS.Sound.createAsync({ uri: audioUrl }, { shouldPlay: true });
+      soundRef.current = sound;
+      // Auto-stop after 5 seconds
+      setTimeout(async()=>{ try { if (soundRef.current === sound) { await sound.unloadAsync(); soundRef.current = null; } } catch {} }, 5000);
+    } catch (e) {
+      Alert.alert('Test failed', String(e?.message || e));
+    } finally { setTesting(false); }
+  };
 
   const add = async ()=>{
     if(!title) return Alert.alert('Validation','Title is required');
@@ -62,9 +69,12 @@ export default function AdminMeditations(){
         <TextInput placeholder='Category' placeholderTextColor={theme.textMuted} value={category} onChangeText={setCategory} style={[styles.inp, { color: theme.text, backgroundColor: theme.card }]} />
         <TextInput placeholder='Background Sound' placeholderTextColor={theme.textMuted} value={bgSound} onChangeText={setBgSound} style={[styles.inp, { color: theme.text, backgroundColor: theme.card }]} />
       </View>
-      <View style={{ flexDirection:'row', gap:8, marginBottom:8 }}>
+      <View style={{ marginBottom:8 }}>
         <TextInput placeholder='Audio URL (https)' placeholderTextColor={theme.textMuted} value={audioUrl} onChangeText={setAudioUrl} style={[styles.inp, { color: theme.text, backgroundColor: theme.card }]} />
-        <PrimaryButton title='Pick file' onPress={pickAndUpload} />
+        <View style={{ flexDirection:'row', alignItems:'center', marginTop:6, gap:8 }}>
+          <PrimaryButton title={testing? 'Playing…' : 'Test Play'} onPress={testPlay} disabled={testing} />
+          <Text style={{ color: theme.textMuted, fontSize: 12 }}>Paste a direct https link to an audio file (.mp3 or .m4a). Test plays ~5s.</Text>
+        </View>
       </View>
       <PrimaryButton title='Add' onPress={add} />
       <FlatList data={items} keyExtractor={(it)=> it.id} contentContainerStyle={{ gap:8, marginTop:12 }} renderItem={({ item })=> (
