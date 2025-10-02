@@ -9,6 +9,8 @@ import CryptoJS from "crypto-js"; // retained (may be used elsewhere / future)
 import { listMoodEntriesPage, listMoodEntriesSince, listMoodEntriesBetween, decryptEntry, updateMoodEntry, deleteMoodEntry, flushQueue, getChartDataSince, getChartDataBetween } from "../src/services/moodEntries";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Share } from 'react-native';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import MarkdownPreview from "../src/components/MarkdownPreview";
 import { Dimensions } from "react-native";
 import Card from "../src/components/Card";
@@ -41,6 +43,8 @@ export default function WellnessReport() {
   const [customRange, setCustomRange] = useState(null); // { start:Date, end:Date }
   const [rangeModal, setRangeModal] = useState(false);
   const [rangePicking, setRangePicking] = useState('start'); // 'start' or 'end'
+  const [autoExtendedMsg, setAutoExtendedMsg] = useState('');
+  const expandAttemptRef = useRef(0);
   const chartFade = useRef(new Animated.Value(1)).current;
   const pieAnim = useRef(new Animated.Value(1)).current;
   const pointAnimValues = useRef([]); // Animated.Value[] for each point
@@ -115,6 +119,28 @@ export default function WellnessReport() {
         stress: r.stress,
       }));
       setTfEntries(normalized);
+
+      // Auto-extend timeframe if too few points and not using custom range
+      if(!customRange && normalized.length <= 1) {
+        if(timeframe === 7 && expandAttemptRef.current === 0){
+          expandAttemptRef.current = 1;
+          setAutoExtendedMsg('Not enough data in 7 days. Showing last 30 days.');
+          setTimeframe(30);
+          setTfLoading(false);
+          return; // wait for next effect
+        }
+        if(timeframe === 30 && expandAttemptRef.current === 1){
+          expandAttemptRef.current = 2;
+          setAutoExtendedMsg('Not enough data in 30 days. Showing last 90 days.');
+          setTimeframe(90);
+          setTfLoading(false);
+          return;
+        }
+      } else {
+        // Reset attempt when we have sufficient data or using custom
+        expandAttemptRef.current = 0;
+        setAutoExtendedMsg('');
+      }
     } catch(e){}
     setTfLoading(false);
     Animated.parallel([
@@ -370,45 +396,58 @@ export default function WellnessReport() {
               <Text style={styles.shareBtnText}>Share</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.shareBtn,{ backgroundColor:'#43A047', marginLeft:8 }]}
-              onPress={()=>{
-              const headerLine = customRange ? `Custom Range ${customRange.start.toLocaleDateString()} - ${customRange.end.toLocaleDateString()}` : `${timeframe} Day Window`;
-              const rows = filteredTf.filter(e=>e.createdAt?.seconds).map(e=>{
-                const dIso = new Date(e.createdAt.seconds*1000).toISOString();
-                const noteLen = e.note? e.note.length : 0;
-                const mood = (e.mood||'').replace(/,/g,' ');
-                const stressNum = typeof e.stress === 'string' ? parseFloat(e.stress) : e.stress;
-                return `${dIso},${mood},${Number.isFinite(stressNum)?stressNum:''},${noteLen}`;
-              });
-              const csv = ['date,mood,stress,noteLength', ...rows].join('\n');
-              Share.share({ message: `${headerLine}\n${csv}` });
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Export entries CSV"
-              hitSlop={{ top:8, bottom:8, left:8, right:8 }}
-            >
-              <Text style={styles.shareBtnText}>CSV</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
               style={[styles.shareBtn,{ backgroundColor:'#6D4C41', marginLeft:8 }]}
-              onPress={()=>{
-              // Stats CSV (multiple tables separated by blank lines)
-              const wHeader = 'weekday,avgStress';
-              const wRows = weekdayLabels.map((l,i)=> `${l},${weekdayAvg[i]}`);
-              const hHeader = 'hour,avgStress';
-              const hRows = hourAvg.map((v,i)=> `${i},${v}`);
-              const tHeader = 'timeOfDay,avgStress';
-              const tRows = todLabels.map((l,i)=> `${l},${todValues[i]}`);
-              const csv = [wHeader, ...wRows, '', hHeader, ...hRows, '', tHeader, ...tRows].join('\n');
-              Share.share({ message: csv });
+              onPress={async ()=>{
+                try{
+                  const header = customRange ? `${customRange.start.toLocaleDateString()} - ${customRange.end.toLocaleDateString()}` : `${timeframe} Day Window`;
+                  const entriesRows = filteredTf.filter(e=>e.createdAt?.seconds).map(e=>{
+                    const d = new Date(e.createdAt.seconds*1000);
+                    const stressNum = typeof e.stress === 'string' ? parseFloat(e.stress) : e.stress;
+                    return { date: d.toLocaleString(), mood: e.mood||'', stress: Number.isFinite(stressNum)? stressNum : '' };
+                  });
+                  const freqRows = Object.entries(moodFreq).sort((a,b)=>b[1]-a[1]).map(([m,c])=> `<tr><td>${m}</td><td>${c}</td></tr>`).join('');
+                  const todRows = todLabels.map((l,i)=> `<tr><td>${l}</td><td>${todValues[i]}</td></tr>`).join('');
+                  const weekdayRows = weekdayLabels.map((l,i)=> `<tr><td>${l}</td><td>${weekdayAvg[i]}</td></tr>`).join('');
+                  const entryRowsHtml = entriesRows.map(r=> `<tr><td>${r.date}</td><td>${r.mood}</td><td>${r.stress}</td></tr>`).join('');
+                  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><style>
+                    body{font-family:Arial,Helvetica,sans-serif; padding:16px; color:#0B1722}
+                    h1{color:#01579B; margin:0 0 8px}
+                    h2{color:#0277BD; margin:16px 0 8px; font-size:16px}
+                    .pill{display:inline-block; background:#E1F5FE; color:#01579B; padding:6px 10px; border-radius:16px; margin-right:8px; font-weight:600; font-size:12px}
+                    table{border-collapse:collapse; width:100%;}
+                    th,td{border:1px solid #E3F2FD; padding:6px 8px; font-size:12px}
+                    th{background:#E1F5FE; text-align:left}
+                  </style></head><body>
+                    <h1>Wellness Report</h1>
+                    <div class="pill">${header}</div>
+                    <div class="pill">Avg ${avgStress}</div>
+                    <div class="pill">Median ${median}</div>
+                    <div class="pill">Variance ${varianceStr}</div>
+                    <div class="pill">Min–Max ${minStress}-${maxStress}</div>
+                    <div class="pill">Streak ${streak}d</div>
+                    <h2>Mood Frequency</h2>
+                    <table><thead><tr><th>Mood</th><th>Count</th></tr></thead><tbody>${freqRows || '<tr><td colspan="2">None</td></tr>'}</tbody></table>
+                    <h2>Avg Stress by Time of Day</h2>
+                    <table><thead><tr><th>Time</th><th>Avg Stress</th></tr></thead><tbody>${todRows}</tbody></table>
+                    <h2>Avg Stress by Weekday</h2>
+                    <table><thead><tr><th>Weekday</th><th>Avg Stress</th></tr></thead><tbody>${weekdayRows}</tbody></table>
+                    <h2>Entries</h2>
+                    <table><thead><tr><th>Date</th><th>Mood</th><th>Stress</th></tr></thead><tbody>${entryRowsHtml || '<tr><td colspan="3">No entries</td></tr>'}</tbody></table>
+                  </body></html>`;
+                  const { uri } = await Print.printToFileAsync({ html });
+                  await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Share Wellness Report PDF' });
+                }catch(e){ Alert.alert('Error', e.message); }
               }}
               accessibilityRole="button"
-              accessibilityLabel="Export stats CSV"
+              accessibilityLabel="Export PDF"
               hitSlop={{ top:8, bottom:8, left:8, right:8 }}
             >
-              <Text style={styles.shareBtnText}>Stats CSV</Text>
+              <Text style={styles.shareBtnText}>PDF</Text>
             </TouchableOpacity>
           </View>
+          {autoExtendedMsg ? (
+            <Text style={{ fontSize:12, color:'#01579B', marginBottom:6 }}>{autoExtendedMsg}</Text>
+          ) : null}
           <Animated.View style={{ opacity: chartFade }}>
             {/* Disable touch handling on chart by default to allow vertical scroll */}
             <View

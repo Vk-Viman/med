@@ -10,10 +10,7 @@ service cloud.firestore {
       return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.userType == 'admin';
     }
 
-    // Default: read allowed for signed-in users; write denied unless specified
-    match /{document=**} {
-      allow read: if isSignedIn();
-    }
+    // IMPORTANT: Do NOT add a blanket allow here. Define rules per-collection below.
 
     // Challenges collection
     match /challenges/{challengeId} {
@@ -50,24 +47,78 @@ service cloud.firestore {
 
     // Admin-managed content (readable by users, writable by admins)
     match /admin_meditations/{medId} {
-      allow read: if isSignedIn();
+      // Public read so app can load catalog before auth initializes
+      allow read: if true;
       allow create, update, delete: if isAdmin();
     }
     match /admin_plans/{planId} {
-      allow read: if isSignedIn();
+      // Public read to show plan templates without requiring auth
+      allow read: if true;
       allow create, update, delete: if isAdmin();
     }
 
-    // Users collection (limited self-write)
+    // Admin-managed groups (admin UI only)
+    match /admin_groups/{groupId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    // Moderation flags (admin-only)
+    match /flagged_posts/{flagId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    // Users collection (self access + owner-only subcollections)
     match /users/{uid} {
-      allow read: if isSignedIn() && request.auth.uid == uid || isAdmin();
-      allow update: if request.auth.uid == uid; // user can update their own profile (not admin-only fields enforced by rules structure)
+      // Allow owner to read their profile; admins can read any
+      allow read: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
+      // Owner can create their doc (first sign-in), admins too
+      allow create: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
+      // Owner can update their profile, but cannot change userType; admins can update anything
+      allow update: if (
+        isAdmin() || (
+          isSignedIn() && request.auth.uid == uid &&
+          // Protect userType from non-admin edits
+          request.resource.data.userType == resource.data.userType
+        )
+      );
+
+      // Owner-only moods subcollection used by Wellness Report
+      match /moods/{moodId} {
+        allow read, write: if isSignedIn() && request.auth.uid == uid;
+      }
+
+      // Meditation sessions recorded per user
+      match /sessions/{sessionId} {
+        allow read, write: if isSignedIn() && request.auth.uid == uid;
+      }
+
+      // Private docs (e.g., plan, settings, encrypted blobs)
+      match /private/{docId} {
+        allow read, write: if isSignedIn() && request.auth.uid == uid;
+      }
+
+      // User badges (awards)
+      match /badges/{badgeId} {
+        allow read, write: if isSignedIn() && request.auth.uid == uid;
+      }
+
+      // User stats (aggregates like totalMinutes)
+      match /stats/{statId} {
+        allow read, write: if isSignedIn() && request.auth.uid == uid;
+      }
     }
 
     // Admin audit logs (admin-only write)
     match /admin_audit_logs/{logId} {
       allow read: if isAdmin();
       allow create: if isAdmin();
+    }
+
+    // Admin app configuration: readable by signed-in users, writable by admins only
+    match /admin_config/{docId} {
+      // Public read so feature flags load even pre-auth
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
     }
 
     // Privacy requests
