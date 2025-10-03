@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { db, auth } from "../../firebase/firebaseConfig";
 import { collection, doc, addDoc, getDoc, getDocs, setDoc, query, where, orderBy, serverTimestamp, updateDoc, increment, limit } from "firebase/firestore";
 import { ensurePostIsSafe } from "../../src/moderation";
-import { updateUserStats, evaluateAndAwardBadges, awardFirstPostIfNeeded } from "../../src/badges";
+import { updateUserStats, evaluateAndAwardBadges, awardFirstPostIfNeeded, awardBadge } from "../../src/badges";
 import { useTheme } from "../../src/theme/ThemeProvider";
 
 export default function CommunityScreen() {
@@ -141,6 +141,17 @@ export default function CommunityScreen() {
 
   const addMeditationMinutes = async (challengeId, mins=10) => {
     if (!auth.currentUser) return;
+    // Optional enforcement: disallow adding minutes outside challenge window
+    try {
+      const ch = challenges.find(c=> c.id === challengeId);
+      if (ch) {
+        const now = Date.now();
+        const sMs = ch.startAt?.toDate ? ch.startAt.toDate().getTime() : (ch.startAt instanceof Date ? ch.startAt.getTime() : null);
+        const eMs = ch.endAt?.toDate ? ch.endAt.toDate().getTime() : (ch.endAt instanceof Date ? ch.endAt.getTime() : null);
+        if (sMs && now < sMs) { Alert.alert('Not started', 'This challenge hasn\'t started yet.'); return; }
+        if (eMs && now > eMs) { Alert.alert('Ended', 'This challenge has already ended.'); return; }
+      }
+    } catch {}
     const ref = doc(db, "challenges", challengeId, "participants", auth.currentUser.uid);
     await setDoc(ref, { minutes: increment(mins) }, { merge: true });
     Alert.alert("Progress", `Added ${mins} minutes.`);
@@ -162,7 +173,18 @@ export default function CommunityScreen() {
       if (after >= goal && !joinedMap[challengeId]?.completed) {
         await setDoc(ref, { completed: true, completedAt: serverTimestamp() }, { merge: true });
         setJoinedMap((m)=> ({ ...m, [challengeId]: { ...(m[challengeId]||{}), completed:true } }));
-        Alert.alert('Congrats!', 'Challenge goal reached. Great job!');
+        // Auto-grant reward: badge + optional points
+        try {
+          const badgeName = ch?.rewardBadge || 'Challenge Finisher';
+          await awardBadge(auth.currentUser.uid, `challenge_${challengeId}`, badgeName);
+          const pts = Number(ch?.rewardPoints || 0);
+          if (pts > 0) {
+            await setDoc(doc(db, 'users', auth.currentUser.uid, 'stats', 'aggregate'), { points: increment(pts), lastUpdated: serverTimestamp() }, { merge: true });
+          }
+          Alert.alert('Congrats!', `${badgeName} awarded${pts>0? ` • +${pts} pts`:''}. Great job!`);
+        } catch {
+          Alert.alert('Congrats!', 'Challenge goal reached. Great job!');
+        }
       }
     }
   } catch {}
