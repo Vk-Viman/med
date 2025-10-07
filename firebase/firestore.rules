@@ -2,87 +2,59 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isSignedIn() {
-      return request.auth != null;
-    }
+    // Helpers
+    function isSignedIn() { return request.auth != null; }
     function isAdmin() {
-      // Single source of truth: users/{uid}.userType == 'admin'
+      // Users are admins if users/{uid}.userType == 'admin'
       return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.userType == 'admin';
     }
 
-    // IMPORTANT: Do NOT add a blanket allow here. Define rules per-collection below.
-
-    // Challenges collection
-    match /challenges/{challengeId} {
-      allow read: if true; // public
-      // Only admins can create/update/delete challenges
-      allow create, update, delete: if isAdmin();
-      allow get, list: if true;
-
-      // Subcollections within a challenge
-      match /participants/{uid} {
-        allow read: if isSignedIn();
-        // A user can create/update their own participant doc (including teamId assignment); admins can write anything
-        allow create, update: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
-        allow delete: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
-      }
-      match /teams/{teamId} {
-        allow read: if true;
-        allow write: if isAdmin();
-      }
-      match /feed/{eventId} {
-        allow read: if isSignedIn();
-        allow write: if isAdmin();
-      }
-    }
-
-    // Posts collection
+    // ===================== Posts & Anonymous Board =====================
     match /posts/{postId} {
       allow read: if true;
-      // Anyone signed in can create posts; moderation fields can only be updated by admins
+      // Signed-in users can create posts; only admins can update/delete (e.g., hide/unhide, remove)
       allow create: if isSignedIn();
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow update, delete: if isAdmin();
+
+      // Likes subcollection: user can like/unlike their own doc
+      match /likes/{uid} {
+        allow read: if true;
+        allow create, delete: if isSignedIn() && request.auth.uid == uid;
+        allow update: if false;
+      }
+
+      // Replies subcollection: any signed-in user can reply (admin can moderate server-side)
+      match /replies/{replyId} {
+        allow read: if true;
+        allow create: if isSignedIn();
+        allow update, delete: if false;
+      }
     }
 
-    // Admin-managed content (readable by users, writable by admins)
-    match /admin_meditations/{medId} {
-      // Public read so app can load catalog before auth initializes
-      allow read: if true;
-      allow create, update, delete: if isAdmin();
-    }
-    match /admin_plans/{planId} {
-      // Public read to show plan templates without requiring auth
-      allow read: if true;
-      allow create, update, delete: if isAdmin();
-    }
-
-    // Admin-managed groups (admin UI only)
-    match /admin_groups/{groupId} {
-      allow read, create, update, delete: if isAdmin();
-    }
-
-    // Moderation flags (admin-only)
-    match /flagged_posts/{flagId} {
-      allow read, create, update, delete: if isAdmin();
-    }
-
-    // Users collection (self access + owner-only subcollections)
+    // ===================== Users & Owner Data =====================
     match /users/{uid} {
-      // Allow owner to read their profile; admins can read any
+      // Read own profile; admins can read any
       allow read: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
-      // Owner can create their doc (first sign-in), admins too
+      // Create own user doc on first sign-in; admins also allowed
       allow create: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
-      // Owner can update their profile, but cannot change userType; admins can update anything
+      // Update own doc but cannot change userType; admins can update anything
       allow update: if (
         isAdmin() || (
           isSignedIn() && request.auth.uid == uid &&
-          // Protect userType from non-admin edits
           request.resource.data.userType == resource.data.userType
         )
       );
+      // Delete restricted to admins (protect account docs)
+      allow delete: if isAdmin();
 
-      // Owner-only moods subcollection used by Wellness Report
+      // Mutes: which anonymous IDs this user has muted
+      match /mutes/{anonId} {
+        allow read: if isSignedIn() && request.auth.uid == uid;
+        allow create, delete: if isSignedIn() && request.auth.uid == uid;
+        allow update: if false;
+      }
+
+      // Wellness Report moods
       match /moods/{moodId} {
         allow read, write: if isSignedIn() && request.auth.uid == uid;
       }
@@ -92,36 +64,92 @@ service cloud.firestore {
         allow read, write: if isSignedIn() && request.auth.uid == uid;
       }
 
-      // Private docs (e.g., plan, settings, encrypted blobs)
+      // Private docs (plans, settings, etc.)
       match /private/{docId} {
         allow read, write: if isSignedIn() && request.auth.uid == uid;
       }
 
-      // User badges (awards)
+      // User badges
       match /badges/{badgeId} {
         allow read, write: if isSignedIn() && request.auth.uid == uid;
       }
 
-      // User stats (aggregates like totalMinutes)
+      // User stats (e.g., aggregate minutes)
       match /stats/{statId} {
+        allow read, write: if isSignedIn() && request.auth.uid == uid;
+      }
+
+      // User favorites (meditations the user starred)
+      match /favorites/{favId} {
         allow read, write: if isSignedIn() && request.auth.uid == uid;
       }
     }
 
-    // Admin audit logs (admin-only write)
+    // ===================== Reports (Moderation Queue) =====================
+    match /reports/{reportId} {
+      // Allow any signed-in user to create a report
+      allow create: if isSignedIn();
+      // Admins can read the queue, update statuses, and delete entries
+      allow read, update, delete: if isAdmin();
+    }
+
+    // ===================== Challenges =====================
+    match /challenges/{challengeId} {
+      allow read: if true; // public read
+      // Only admins manage root challenge docs
+      allow create, update, delete: if isAdmin();
+
+      // Participants: users can create/update their own document (minutes, teamId, completed)
+      match /participants/{uid} {
+        allow read: if true;
+        allow create, update: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+        allow delete: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      }
+
+      // Teams (names, totals) — client read-only
+      match /teams/{teamId} {
+        allow read: if true;
+        allow create, update, delete: if isAdmin();
+      }
+
+      // Feed (join/progress/completion) — client append-only
+      match /feed/{eventId} {
+        allow read: if true;
+        allow create: if isSignedIn();
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // ===================== Admin-managed content =====================
+    match /admin_meditations/{medId} {
+      allow read: if true; // preload catalog without auth
+      allow create, update, delete: if isAdmin();
+    }
+    match /admin_plans/{planId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+    match /admin_groups/{groupId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+    match /flagged_posts/{flagId} {
+      allow read, create, update, delete: if isAdmin();
+    }
     match /admin_audit_logs/{logId} {
       allow read: if isAdmin();
       allow create: if isAdmin();
     }
-
-    // Admin app configuration: readable by signed-in users, writable by admins only
     match /admin_config/{docId} {
-      // Public read so feature flags load even pre-auth
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+    // Runtime admin badge catalog (icons/emoji metadata)
+    match /admin_badges/{badgeId} {
       allow read: if true;
       allow create, update, delete: if isAdmin();
     }
 
-    // Privacy requests
+    // ===================== Privacy requests =====================
     match /privacy_requests/{reqId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
       allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;

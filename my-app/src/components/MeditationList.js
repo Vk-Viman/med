@@ -3,8 +3,9 @@ import { View, Text, TouchableOpacity, StyleSheet, Animated, TextInput, ScrollVi
 import * as FileSystem from 'expo-file-system/legacy';
 import { addDownloadListener } from '../utils/downloadEvents';
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { auth } from "../../firebase/firebaseConfig";
+import { auth, db } from "../../firebase/firebaseConfig";
 import { listMeditations as listMedsSvc, subscribeMeditations } from "../services/meditations";
+import { collection, deleteDoc, doc, getDocs, setDoc } from 'firebase/firestore';
 
 // Dynamic list from Firestore (admin-managed)
 // Shape: { id, title, category, url, duration?, bgSound?, createdAt? }
@@ -90,6 +91,15 @@ export default function MeditationList({ onSelect, selected }) {
         const raw = await AsyncStorage.getItem(favKey);
         if (raw) setFavorites(JSON.parse(raw));
       } catch {}
+      // Also load from Firestore if signed-in
+      if (auth.currentUser && auth.currentUser.uid) {
+        try {
+          const snap = await getDocs(collection(db, 'users', auth.currentUser.uid, 'favorites'));
+          const ids = [];
+          snap.forEach(d => ids.push(d.id));
+          if (ids.length > 0) setFavorites(ids);
+        } catch {}
+      }
     })();
   }, [favKey]);
 
@@ -99,6 +109,17 @@ export default function MeditationList({ onSelect, selected }) {
       : [...favorites, id];
     setFavorites(next);
     try { await AsyncStorage.setItem(favKey, JSON.stringify(next)); } catch {}
+    // Persist to Firestore if signed-in
+    try {
+      if (auth.currentUser && auth.currentUser.uid) {
+        const pref = doc(db, 'users', auth.currentUser.uid, 'favorites', id);
+        if (next.includes(id)) {
+          await setDoc(pref, { createdAt: new Date() }, { merge: true });
+        } else {
+          await deleteDoc(pref);
+        }
+      }
+    } catch {}
   };
 
   const categories = useMemo(() => [

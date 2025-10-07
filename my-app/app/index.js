@@ -14,10 +14,15 @@ import { subscribeAdminConfig, getAdminConfig } from "../src/services/config";
 import { auth, db } from "../firebase/firebaseConfig";
 import { evaluateStreakBadges, listUserBadges, badgeEmoji } from "../src/badges";
 import Sparkline from "../src/components/Sparkline";
-import { collection, query, where, orderBy, onSnapshot, Timestamp, getDocs } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, Timestamp, getDocs, doc, getDoc } from 'firebase/firestore';
+import { ensureAndroidNotificationChannel } from '../src/notifications';
 import * as Haptics from 'expo-haptics';
 import LottieView from 'lottie-react-native';
 import { useFocusEffect } from 'expo-router';
+import { nextMinuteThreshold, nextStreakThreshold, progressTowards, loadAdminBadgesIntoCatalog } from '../src/constants/badges';
+import { listAdminBadgesForUser } from '../src/services/admin';
+// Locale detection without expo-localization
+import { getCachedAggStats, setCachedAggStats } from '../src/utils/statsCache';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -37,6 +42,8 @@ export default function HomeScreen() {
   const [cfg, setCfg] = useState({ allowExports:true, allowRetention:true, allowBackfillTools:false, allowMeditations:true, allowPlans:true, allowCommunity:true });
   const [todayMinutes, setTodayMinutes] = useState(0);
   const DAILY_GOAL_MIN = 10; // simple default goal
+  const lastBadgeRef = useRef(null);
+  const [aggStats, setAggStats] = useState({ totalMinutes: 0, streak: 0 });
 
   const greeting = () => {
     const h = new Date().getHours();
@@ -111,15 +118,66 @@ export default function HomeScreen() {
         setTodayMinutes(Math.round(totalSec/60));
       }
     } catch {}
+    // Fast-path: read cached aggregate stats if available
+    try {
+      const uid = auth.currentUser?.uid; if(uid){
+        const cached = await getCachedAggStats(uid);
+        if(cached) setAggStats({ totalMinutes: Number(cached.totalMinutes||0), streak: Number(cached.streak||0) });
+      }
+    } catch {}
+    // Fetch aggregate stats for progress chips (and cache)
+    try {
+      const uid = auth.currentUser?.uid; if(uid){
+        const sRef = doc(db, 'users', uid, 'stats', 'aggregate');
+        const sSnap = await getDoc(sRef);
+        if(sSnap?.exists()){
+          const d = sSnap.data()||{};
+          setAggStats({ totalMinutes: Number(d.totalMinutes||0), streak: Number(d.streak||0) });
+          try { await setCachedAggStats(uid, d); } catch {}
+        } else {
+          setAggStats({ totalMinutes: 0, streak: 0 });
+        }
+      }
+    } catch { setAggStats({ totalMinutes: 0, streak: 0 }); }
     if(opts.showSpinner) setLoading(false);
     return () => { mounted = false; };
   };
 
   useEffect(()=>{ 
     loadData(); 
+    // Merge admin-defined badges into runtime catalog (read-only on user side)
+    (async()=>{ 
+      try { 
+        const locale = (typeof navigator !== 'undefined' && navigator.language) 
+          ? navigator.language 
+          : (Intl?.DateTimeFormat?.().resolvedOptions?.().locale || 'en');
+        await loadAdminBadgesIntoCatalog({ fetchAdminBadges: listAdminBadgesForUser, locale: String(locale).split('-')[0] }); 
+      } catch {} 
+    })();
     let unsub;
     (async()=>{ try { setCfg(await getAdminConfig()); } catch {} ; try { unsub = subscribeAdminConfig(setCfg); } catch {} })();
     return ()=>{ try{ unsub && unsub(); }catch{} };
+  },[]);
+
+  // Notify when a new badge appears
+  useEffect(()=>{
+    const uid = auth.currentUser?.uid; if(!uid) return;
+    const ref = collection(db, `users/${uid}/badges`);
+    const unsub = onSnapshot(query(ref, orderBy('awardedAt','desc')), async (snap)=>{
+      const first = snap.docs[0];
+      if(!first) return;
+      const id = first.id;
+      if(lastBadgeRef.current && lastBadgeRef.current === id) return;
+      // New badge detected
+      lastBadgeRef.current = id;
+      setShowToast(true); setTimeout(()=> setShowToast(false), 2000);
+      try { await ensureAndroidNotificationChannel(); } catch {}
+      try {
+        const Notifications = await import('expo-notifications');
+        await Notifications.scheduleNotificationAsync({ content:{ title:'New Badge Earned', body: first.data()?.name || id }, trigger: null });
+      } catch {}
+    });
+    return ()=>{ try{ unsub(); }catch{} };
   },[]);
 
   const triggerToast = () => {
@@ -343,7 +401,7 @@ export default function HomeScreen() {
           <Text style={[styles.greetText, { color: theme.text }]}>{greeting()}{displayName? `, ${displayName.split(' ')[0]}`:''}</Text>
           <Text accessibilityLabel='Guided Meditation and Stress Relief' style={[styles.tagline, { color: theme.textMuted }]}>Guided Meditation & Stress Relief</Text>
         </View>
-
+        
   <Text ref={todayHeaderRef} style={[styles.sectionLabel,{ color: theme.textMuted }]} accessibilityRole='header' accessibilityLabel='Today'>TODAY</Text>
   <Card style={[styles.snapshotCard, { backgroundColor: (mode === 'dark' ? moodTintDark(summary.latest?.mood) : moodTint(summary.latest?.mood)) }]}> 
           {loading ? (
@@ -449,6 +507,35 @@ export default function HomeScreen() {
             ))}
           </View>
         )}
+        {/* Progress-to-next chips to motivate */}
+        <View style={[styles.badgesRow, { backgroundColor: theme.card }]}>
+          {(() => {
+            const nm = nextMinuteThreshold(aggStats.totalMinutes||0);
+            if(nm){
+              const pct = progressTowards(nm, aggStats.totalMinutes||0);
+              return (
+                <View style={styles.badgePill}>
+                  <Text style={styles.badgeEmoji}>⏱️</Text>
+                  <Text style={styles.badgeText}>{pct}% to {nm}m</Text>
+                </View>
+              );
+            }
+            return null;
+          })()}
+          {(() => {
+            const ns = nextStreakThreshold(aggStats.streak||0);
+            if(ns){
+              const pct = progressTowards(ns, aggStats.streak||0);
+              return (
+                <View style={styles.badgePill}>
+                  <Text style={styles.badgeEmoji}>🔥</Text>
+                  <Text style={styles.badgeText}>{pct}% to {ns}-day</Text>
+                </View>
+              );
+            }
+            return null;
+          })()}
+        </View>
         <View style={styles.secondaryList}>
           <PrimaryButton accessibilityLabel='Open achievements' title="Achievements" onPress={()=> navigate('/achievements')} variant='secondary' fullWidth left={<Ionicons name='trophy-outline' size={18} color='#01579B' />} />
           <View style={{ height: spacing.sm }} />

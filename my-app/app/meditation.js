@@ -1,5 +1,5 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView } from "react-native";
+﻿import React, { useEffect, useMemo, useState, useRef } from "react";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import MeditationList from "../src/components/MeditationList";
 import PlayerControls from "../src/components/PlayerControls";
@@ -7,7 +7,7 @@ import BackgroundSoundSwitcher from "../src/components/BackgroundSoundSwitcher";
 import { colors, spacing } from "../src/theme";
 import GradientBackground from "../src/components/GradientBackground";
 import { auth, db } from "../firebase/firebaseConfig";
-import { collection, onSnapshot, query, where, Timestamp } from "firebase/firestore";
+import { collection, onSnapshot, query, where, Timestamp, doc, getDocs } from "firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams } from 'expo-router';
 import { Alert } from 'react-native';
@@ -17,10 +17,14 @@ export default function MeditationPlayerScreen() {
   const [selectedMeditation, setSelectedMeditation] = useState(null);
   const [backgroundSound, setBackgroundSound] = useState("none");
   const [todayMinutes, setTodayMinutes] = useState(0);
+  const [favoriteMeds, setFavoriteMeds] = useState([]);
+  const [showTop, setShowTop] = useState(false);
+  const scrollRef = useRef(null);
   const params = useLocalSearchParams();
   const uid = auth.currentUser?.uid || "local";
   const lastMedKey = `@med:lastSelection:${uid}`;
   const lastBgKey = `@med:lastBg:${uid}`;
+  const favKey = `@med:favorites:${uid}`;
 
   // Subscribe to today's total minutes so users see immediate progress
   useEffect(() => {
@@ -74,6 +78,39 @@ export default function MeditationPlayerScreen() {
     }
   }, [backgroundSound, lastBgKey]);
 
+  // Favorites quick access row
+  useEffect(() => {
+    let unsub = null;
+    const loadFromIds = async (ids) => {
+      try {
+        if (!ids || ids.length === 0) { setFavoriteMeds([]); return; }
+        const rows = await Promise.all(ids.slice(0, 20).map(async (id) => {
+          try { return await getMeditationById(String(id)); } catch { return null; }
+        }));
+        setFavoriteMeds(rows.filter(Boolean));
+      } catch { setFavoriteMeds([]); }
+    };
+    (async () => {
+      if (auth.currentUser && auth.currentUser.uid) {
+        try {
+          const ref = collection(db, 'users', auth.currentUser.uid, 'favorites');
+          unsub = onSnapshot(ref, async (snap) => {
+            const ids = snap.docs.map(d => d.id);
+            await loadFromIds(ids);
+          });
+          return;
+        } catch {}
+      }
+      // Fallback to local favorites when signed-out or failure
+      try {
+        const raw = await AsyncStorage.getItem(favKey);
+        const ids = raw ? JSON.parse(raw) : [];
+        await loadFromIds(ids);
+      } catch { setFavoriteMeds([]); }
+    })();
+    return () => { try { unsub && unsub(); } catch {} };
+  }, [favKey, uid]);
+
   // Handle Replay params
   useEffect(() => {
     (async () => {
@@ -99,7 +136,14 @@ export default function MeditationPlayerScreen() {
     return (
       <GradientBackground>
         <SafeAreaView style={styles.container}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: spacing.lg }} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        ref={scrollRef}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: spacing.lg }}
+        keyboardShouldPersistTaps="handled"
+        onScroll={(e)=>{ try { setShowTop((e?.nativeEvent?.contentOffset?.y||0) > 200); } catch {} }}
+        scrollEventThrottle={16}
+      >
         <Text style={styles.title}>Meditation Player</Text>
         <View style={styles.todayPill}>
           <Text style={styles.todayLabel}>Today's minutes</Text>
@@ -110,10 +154,32 @@ export default function MeditationPlayerScreen() {
             Selected: {selectedMeditation?.title || '—'}
           </Text>
         )}
+        {favoriteMeds.length > 0 && (
+          <View style={{ marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.mutedText || '#607D8B', fontWeight: '700', marginBottom: 6 }}>Your favorites</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {favoriteMeds.map(m => (
+                <TouchableOpacity key={m.id} onPress={() => setSelectedMeditation(m)} style={styles.favChip} accessibilityRole="button" accessibilityLabel={`Play favorite ${m.title}`}>
+                  <Text style={styles.favChipTxt}>★ {m.title}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
         <MeditationList onSelect={setSelectedMeditation} selected={selectedMeditation} />
         <PlayerControls meditation={selectedMeditation} backgroundSound={backgroundSound} disabled={!selectedMeditation} accessibilityLabel={selectedMeditation? 'Play selected meditation' : 'Select a meditation to enable playback'} />
         <BackgroundSoundSwitcher value={backgroundSound} onChange={setBackgroundSound} />
       </ScrollView>
+      {showTop && (
+        <TouchableOpacity
+          onPress={()=> { try { scrollRef.current?.scrollTo({ y: 0, animated: true }); } catch {} }}
+          style={styles.topBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Scroll to top"
+        >
+          <Text style={styles.topBtnText}>↑ Top</Text>
+        </TouchableOpacity>
+      )}
         </SafeAreaView>
       </GradientBackground>
   );
@@ -138,4 +204,8 @@ const styles = StyleSheet.create({
   },
   todayLabel: { color: colors.mutedText || "#607D8B", fontWeight: "600" },
   todayValue: { color: colors.primary || "#0288D1", fontWeight: "800" },
+  favChip: { paddingHorizontal: 10, paddingVertical: 8, backgroundColor: "#FFF3E0", borderRadius: 16, marginRight: 8, borderWidth: 1, borderColor: "#FFE0B2" },
+  favChipTxt: { color: "#E65100", fontWeight: "700" },
+  topBtn: { position: 'absolute', right: 16, bottom: 16, backgroundColor: colors.primary || '#0288D1', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 6, shadowOffset: { width:0, height:2 }, elevation: 3 },
+  topBtnText: { color: '#fff', fontWeight: '800' }
 });

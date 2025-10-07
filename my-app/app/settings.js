@@ -24,6 +24,7 @@ import { getAdminConfig, subscribeAdminConfig } from '../src/services/config';
 import { registerPushTokens } from '../src/services/pushTokens';
 import { db } from '../firebase/firebaseConfig';
 import { doc, getDoc } from 'firebase/firestore';
+// Removed Recent Achievements from Settings – no longer needed here
 
 const BIOMETRIC_PREF_KEY = 'pref_biometric_enabled_v1';
 

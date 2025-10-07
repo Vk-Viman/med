@@ -3,7 +3,7 @@ import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, Alert, S
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import PrimaryButton from '../../src/components/PrimaryButton';
-import { listGroups, createGroup, deleteGroup, listFlaggedPosts, clearFlag, listChallenges, createChallenge, updateChallenge, deleteChallenge, postChallengeUpdate, listTeams, upsertTeam, deleteTeam, fulfillChallengeReward } from '../../src/services/admin';
+import { listGroups, createGroup, deleteGroup, listFlaggedPosts, clearFlag, listChallenges, createChallenge, updateChallenge, deleteChallenge, postChallengeUpdate, listTeams, upsertTeam, deleteTeam, fulfillChallengeReward, recomputeTeamTotals } from '../../src/services/admin';
 import { collection, getDocs, limit, orderBy, query, where, addDoc, setDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../../firebase/firebaseConfig';
 
@@ -179,6 +179,9 @@ function ChallengeRow({ theme, item, onDelete, onPostUpdate }){
     if (!rewardUid) return Alert.alert('Validation','Enter user UID');
     try { await fulfillChallengeReward({ challengeId: item.id, uid: rewardUid, badgeId: rewardBadge||null, badgeName: rewardBadge||null, points: Number(rewardPoints)||0 }); Alert.alert('Done','Reward fulfilled'); setRewardUid(''); } catch(e){ Alert.alert('Error', e.message); }
   };
+  const recompute = async()=>{
+    try { await recomputeTeamTotals(item.id); Alert.alert('Recomputed','Team totals updated from participants.'); setTeams(await listTeams(item.id)); } catch(e){ Alert.alert('Error', e.message); }
+  };
 
   const searchUsers = async()=>{
     try {
@@ -213,6 +216,7 @@ function ChallengeRow({ theme, item, onDelete, onPostUpdate }){
             <View style={{ flexDirection:'row', gap:8, marginVertical:6 }}>
               <TextInput placeholder='New team name' placeholderTextColor={theme.textMuted} value={teamName} onChangeText={setTeamName} style={[styles.inp, { color: theme.text, backgroundColor: theme.card }]} />
               <PrimaryButton title='Add team' onPress={addTeam} />
+              <PrimaryButton title='Recompute totals' onPress={recompute} />
             </View>
             {teams.map(t => (
               <View key={t.id} style={[styles.row, { backgroundColor: theme.card, marginTop:6 }]}>

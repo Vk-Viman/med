@@ -153,6 +153,47 @@ export async function deleteTeam(challengeId, teamId){
   await deleteDoc(doc(db, `challenges/${challengeId}/teams/${teamId}`));
 }
 
+// ADMIN: recompute team totals from participants (Spark-compatible alternative to server functions)
+export async function recomputeTeamTotals(challengeId){
+  // Fetch all participants and aggregate minutes by teamId; write totals to teams/* docs
+  const partsSnap = await getDocs(collection(db, `challenges/${challengeId}/participants`));
+  const totals = new Map();
+  partsSnap.forEach(d => {
+    const data = d.data() || {};
+    const teamId = data.teamId || null;
+    const minutes = Number(data.minutes || 0);
+    if (teamId) totals.set(teamId, (totals.get(teamId) || 0) + minutes);
+  });
+  // Write totals back
+  const writes = [];
+  totals.forEach((minutes, teamId) => {
+    writes.push(setDoc(doc(db, `challenges/${challengeId}/teams/${teamId}`), { totalMinutes: minutes, updatedAt: new Date() }, { merge: true }));
+  });
+  await Promise.all(writes);
+  await logAdminAction({ action:'recompute_team_totals', meta:{ challengeId } });
+  return Object.fromEntries(totals.entries());
+}
+
+// BADGES (collection: admin_badges) – admin-managed catalog entries
+export async function listAdminBadges(){
+  const snap = await getDocs(query(collection(db, 'admin_badges'), orderBy('createdAt','desc')));
+  const rows = []; snap.forEach(d=> rows.push({ id:d.id, ...d.data() }));
+  return rows;
+}
+// Lightweight read-only list for user-side merging (alias)
+export async function listAdminBadgesForUser(){
+  return await listAdminBadges();
+}
+export async function createAdminBadge(data){
+  await addDoc(collection(db, 'admin_badges'), { ...data, createdAt: new Date() });
+}
+export async function updateAdminBadge(id, patch){
+  await updateDoc(doc(db, `admin_badges/${id}`), { ...patch, updatedAt: new Date() });
+}
+export async function deleteAdminBadge(id){
+  await deleteDoc(doc(db, `admin_badges/${id}`));
+}
+
 // Reward fulfillment: award badge and/or add points to user profile upon completion
 export async function fulfillChallengeReward({ challengeId, uid, badgeId, badgeName, points=0 }){
   // Writes across user profile and badges; admin-only

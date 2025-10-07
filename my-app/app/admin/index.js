@@ -47,6 +47,8 @@ export default function AdminHome(){
       <PrimaryButton title="Plans" onPress={()=> router.push('/admin/plans')} fullWidth variant='secondary' />
       <View style={{ height: 8 }} />
       <PrimaryButton title="Community" onPress={()=> router.push('/admin/community')} fullWidth variant='secondary' />
+      <View style={{ height: 8 }} />
+      <PrimaryButton title="Badges" onPress={()=> router.push('/admin/badges')} fullWidth variant='secondary' />
     </ScrollView>
   );
 }
