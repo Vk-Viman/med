@@ -764,7 +764,12 @@ export default function SettingsScreen() {
           <TouchableOpacity onPress={async()=>{
             const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
             if(perm.status !== 'granted'){ Alert.alert('Permission','Media library permission needed.'); return; }
-            const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality:0.6, base64:true, aspect:[1,1] });
+            const pickerOpts = { quality:0.6, base64:true, aspect:[1,1] };
+            try {
+              const mt = (ImagePicker && ImagePicker.MediaType && ImagePicker.MediaType.Images) || (ImagePicker && ImagePicker.MediaTypeOptions && ImagePicker.MediaTypeOptions.Images);
+              if (mt) pickerOpts.mediaTypes = mt;
+            } catch {}
+            const res = await ImagePicker.launchImageLibraryAsync(pickerOpts);
             if(!res.canceled && res.assets?.length){
               const asset = res.assets[0];
               if(asset.base64){

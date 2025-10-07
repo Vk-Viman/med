@@ -24,19 +24,31 @@ export default function AdminBadges(){
     try {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if(perm.status !== 'granted') { Alert.alert('Permission','Media library permission required.'); return; }
-      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: true });
+      const pickerOpts = { quality: 0.8, base64: true };
+      try {
+        const mt = (ImagePicker && ImagePicker.MediaType && ImagePicker.MediaType.Images) || (ImagePicker && ImagePicker.MediaTypeOptions && ImagePicker.MediaTypeOptions.Images);
+        if (mt) pickerOpts.mediaTypes = mt;
+      } catch {}
+      const res = await ImagePicker.launchImageLibraryAsync(pickerOpts);
       if(res.canceled) return;
       const asset = res.assets?.[0];
       if(!asset?.base64){ Alert.alert('Error','Could not read image'); return; }
-      // Upload to Storage
+      // Preferred: upload to Storage; Fallback: use data URL directly in iconUrl (works like avatar in settings)
       const ts = Date.now();
       const ext = (asset.fileName?.split('.').pop() || 'jpg').toLowerCase();
       const path = `badge-icons/${ts}.${ext}`;
       const r = ref(storage, path);
       const mime = ext==='png' ? 'image/png' : (ext==='webp'? 'image/webp' : 'image/jpeg');
-      await uploadString(r, asset.base64, 'base64', { contentType: mime });
-      const url = await getDownloadURL(r);
-      setForm(s=> ({ ...s, iconUrl: url }));
+      try {
+        // RN-friendly path: use uploadString with base64 to avoid Blob/ArrayBuffer requirements
+        await uploadString(r, asset.base64, 'base64', { contentType: mime });
+        const url = await getDownloadURL(r);
+        setForm(s=> ({ ...s, iconUrl: url }));
+      } catch (e) {
+        // Fallback to data URL (consistent with avatar picker usage)
+        const dataUrl = `data:${mime};base64,${asset.base64}`;
+        setForm(s=> ({ ...s, iconUrl: dataUrl }));
+      }
     } catch(e){ Alert.alert('Upload Failed', e?.message || String(e)); }
   };
 

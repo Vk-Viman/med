@@ -280,14 +280,16 @@ export default function CommunityScreen() {
     const safe = await ensurePostIsSafe(replyText.trim());
     if (!safe.ok) return Alert.alert('Blocked', safe.reason || 'Your reply seems inappropriate.');
     try {
-      await addDoc(collection(db,'posts',postId,'replies'), { text: replyText.trim(), createdAt: serverTimestamp(), anonId: `anon_${Math.random().toString(36).slice(2,8)}`, flagged: !!safe.flagged });
+  const newReplyRef = await addDoc(collection(db,'posts',postId,'replies'), { text: replyText.trim(), createdAt: serverTimestamp(), authorUid: auth.currentUser?.uid || null, anonId: `anon_${Math.random().toString(36).slice(2,8)}`, flagged: !!safe.flagged });
       setReplyText(''); setReplyTarget(null);
       setLastReplyAt(now);
       if(repliesModal?.post?.id === postId){
         setRepliesModal(prev=> ({ ...prev, items:[...prev.items, { id:`local_${Date.now()}`, text: replyText.trim(), createdAt: { toDate: ()=> new Date() }, anonId: 'you' }] }));
       }
-      // Optimistically bump repliesCount on the parent post in UI
+  // Optimistically bump repliesCount on the parent post in UI
       setPosts(prev=> prev.map(p=> p.id===postId? { ...p, repliesCount: (p.repliesCount||0)+1 } : p));
+  // Check server-side rate limit flag
+  try { await new Promise(r=> setTimeout(r, 400)); const rs = await getDoc(newReplyRef); if(rs?.exists?.()){ const rd = rs.data()||{}; if(rd.reviewStatus==='rate_limited'){ try { const { DeviceEventEmitter } = await import('react-native'); DeviceEventEmitter.emit('app-toast', { message:'Please wait a few seconds before replying again.', type:'info' }); } catch { /* no-op */ } } } } catch {}
     } catch (e){
       console.error('addReply failed', e);
       const msg = e?.code === 'permission-denied' ? 'You do not have permission to reply. Please sign in and check Firestore rules.' : (e?.message || 'Could not add reply. Please try again.');
@@ -398,9 +400,10 @@ export default function CommunityScreen() {
     if (!safe.ok) {
       return Alert.alert("Blocked", safe.reason || "Your post seems inappropriate.");
     }
-    await addDoc(collection(db, "posts"), {
+    const newPostRef = await addDoc(collection(db, "posts"), {
       text: message.trim(),
       createdAt: serverTimestamp(),
+      authorUid: auth.currentUser?.uid || null,
       anonId: `anon_${Math.random().toString(36).slice(2,8)}`,
       flagged: safe.flagged || false,
     });
@@ -409,6 +412,16 @@ export default function CommunityScreen() {
     if (auth.currentUser) {
       await awardFirstPostIfNeeded(auth.currentUser.uid);
     }
+    try {
+      await new Promise(r=> setTimeout(r, 500));
+      const ps = await getDoc(newPostRef);
+      if(ps?.exists?.()){
+        const pd = ps.data()||{};
+        if(pd.reviewStatus === 'rate_limited'){
+          try { const { DeviceEventEmitter } = await import('react-native'); DeviceEventEmitter.emit('app-toast', { message:'Please wait a few seconds before posting again.', type:'info' }); } catch { /* no-op */ }
+        }
+      }
+    } catch {}
     const pSnap = await getDocs(query(collection(db, "posts"), orderBy("createdAt", "desc")));
     setPosts(pSnap.docs.map(d => ({ id: d.id, ...d.data() })));
   };
@@ -608,7 +621,11 @@ export default function CommunityScreen() {
                 <Text style={styles.anon}>{item.anonId || "anon"}</Text>
                 <Text style={styles.time}>{item.createdAt?.toDate ? item.createdAt.toDate().toLocaleString() : ''}</Text>
               </View>
-              <Text style={{ color: theme.text, marginTop:4 }}>{item.text}</Text>
+              {item.hidden ? (
+                <Text style={{ color: '#f57c00', marginTop:4, fontStyle:'italic' }}>Hidden pending review</Text>
+              ) : (
+                <Text style={{ color: theme.text, marginTop:4 }}>{item.text}</Text>
+              )}
               <View style={{ flexDirection:'row', alignItems:'center', gap:10, marginTop:8 }}>
                 <Button title={`❤️ ${item.likesCount||0}`} onPress={()=> toggleLike(item)} />
                 <Button title={`Replies ${item.repliesCount||0}`} onPress={()=> openRepliesModal(item)} />

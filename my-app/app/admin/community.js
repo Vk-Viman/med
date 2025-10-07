@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import PrimaryButton from '../../src/components/PrimaryButton';
@@ -64,24 +64,28 @@ export default function AdminCommunity(){
         <TextInput placeholder='Group name' placeholderTextColor={theme.textMuted} value={name} onChangeText={setName} style={[styles.inp, { color: theme.text, backgroundColor: theme.card }]} />
         <PrimaryButton title='Add' onPress={add} />
       </View>
-      <FlatList data={groups} keyExtractor={(g)=> g.id} contentContainerStyle={{ gap:8, marginTop:12 }} renderItem={({ item })=> (
-        <View style={[styles.row, { backgroundColor: theme.card }]}>
-          <Text style={{ color: theme.text, fontWeight:'700' }}>{item.name}</Text>
-          <TouchableOpacity onPress={()=> remove(item.id)}><Text style={{ color:'#D32F2F', fontWeight:'700' }}>Delete</Text></TouchableOpacity>
-        </View>
-      )} />
+      <View style={{ gap:8, marginTop:12 }}>
+        {groups.map(item => (
+          <View key={item.id} style={[styles.row, { backgroundColor: theme.card }]}> 
+            <Text style={{ color: theme.text, fontWeight:'700' }}>{item.name}</Text>
+            <TouchableOpacity onPress={()=> remove(item.id)}><Text style={{ color:'#D32F2F', fontWeight:'700' }}>Delete</Text></TouchableOpacity>
+          </View>
+        ))}
+      </View>
 
       <View style={{ height:16 }} />
       <Text style={{ color: theme.text, fontWeight:'800', fontSize:16, marginBottom:8 }}>Challenges Editor</Text>
-      <ChallengeEditor theme={theme} items={challenges} onChange={async (patch)=>{ try { await updateChallenge(patch.id, patch.data); await load(); } catch(e){ Alert.alert('Error', e.message); } }} onCreate={async (data)=>{ try { await createChallenge(data); await load(); } catch(e){ Alert.alert('Error', e.message); } }} onDelete={async (id)=>{ try { await deleteChallenge(id); await load(); } catch(e){ Alert.alert('Error', e.message); } }} onPostUpdate={async (id, text)=>{ try { await postChallengeUpdate(id, { text }); Alert.alert('Posted','Update added to feed'); } catch(e){ Alert.alert('Error', e.message); } }} />
+  <ChallengeEditor theme={theme} items={challenges} onChange={async (patch)=>{ try { await updateChallenge(patch.id, patch.data); await load(); } catch(e){ Alert.alert('Error', e.message); } }} onCreate={async (data)=>{ try { await createChallenge(data); await load(); } catch(e){ Alert.alert('Error', e.message); } }} onDelete={async (id)=>{ try { await deleteChallenge(id); await load(); } catch(e){ Alert.alert('Error', e.message); } }} onPostUpdate={async (id, text)=>{ try { await postChallengeUpdate(id, { text }); Alert.alert('Posted','Update added to feed'); } catch(e){ Alert.alert('Error', e.message); } }} />
       <View style={{ height:16 }} />
       <Text style={{ color: theme.text, fontWeight:'800', fontSize:16, marginBottom:8 }}>Flagged Posts (manual)</Text>
-      <FlatList data={flagged} keyExtractor={(p)=> p.id} contentContainerStyle={{ gap:8 }} renderItem={({ item })=> (
-        <View style={[styles.row, { backgroundColor: theme.card }]}>
-          <Text style={{ color: theme.text }}>{item.preview || item.text || '(no content)'}</Text>
-          <TouchableOpacity onPress={()=> clear(item.id)}><Text style={{ color:'#2E7D32', fontWeight:'700' }}>Clear</Text></TouchableOpacity>
-        </View>
-      )} />
+      <View style={{ gap:8 }}>
+        {flagged.map(item => (
+          <View key={item.id} style={[styles.row, { backgroundColor: theme.card }]}> 
+            <Text style={{ color: theme.text }}>{item.preview || item.text || '(no content)'}</Text>
+            <TouchableOpacity onPress={()=> clear(item.id)}><Text style={{ color:'#2E7D32', fontWeight:'700' }}>Clear</Text></TouchableOpacity>
+          </View>
+        ))}
+      </View>
       </ScrollView>
     </View>
   );
@@ -152,9 +156,11 @@ function ChallengeEditor({ theme, items, onChange, onCreate, onDelete, onPostUpd
         </TouchableOpacity>
         <PrimaryButton title='Create' onPress={createWithValidation} />
       </View>
-      <FlatList data={items} keyExtractor={(c)=> c.id} contentContainerStyle={{ gap:8, marginTop:8 }} renderItem={({ item })=> (
-        <ChallengeRow theme={theme} item={item} onDelete={onDelete} onPostUpdate={onPostUpdate} />
-      )} />
+      <View style={{ gap:8, marginTop:8 }}>
+        {items.map(item => (
+          <ChallengeRow key={item.id} theme={theme} item={item} onDelete={onDelete} onPostUpdate={onPostUpdate} />
+        ))}
+      </View>
     </View>
   );
 }

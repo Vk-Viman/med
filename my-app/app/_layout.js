@@ -23,6 +23,7 @@ function ActivityWrapper({ children }){
   const lockTimerRef = useRef(null);
   const intervalRef = useRef(0);
   const [localOnly, setLocalOnly] = React.useState(false);
+  const [toast, setToast] = React.useState(null); // { message, type, ts }
 
   const loadInterval = async () => {
     try { const v = await AsyncStorage.getItem(AUTO_LOCK_KEY); intervalRef.current = v? Number(v):0; }catch{ intervalRef.current = 0; }
@@ -61,6 +62,15 @@ function ActivityWrapper({ children }){
     const sub = DeviceEventEmitter.addListener('local-only-changed', ({ enabled })=> setLocalOnly(enabled));
     // initial load of flag (reuse async key directly)
     (async()=>{ try { const v = await AsyncStorage.getItem('privacy_local_only_v1'); setLocalOnly(v==='1'); } catch{} })();
+    return ()=> sub.remove();
+  },[]);
+  // Global toast listener
+  useEffect(()=>{
+    const sub = DeviceEventEmitter.addListener('app-toast', ({ message, type, duration })=>{
+      setToast({ message: String(message||''), type: type || 'info', ts: Date.now() });
+      const ms = Math.min(Math.max(Number(duration||2000), 800), 6000);
+      setTimeout(()=>{ setToast(null); }, ms);
+    });
     return ()=> sub.remove();
   },[]);
   useEffect(()=>{
@@ -179,6 +189,11 @@ function ActivityWrapper({ children }){
         {localOnly && !pathname.includes('login') && !pathname.includes('biometricLogin') && (
           <View style={stylesLocalOnly.badge} pointerEvents="none">
             <Text style={stylesLocalOnly.badgeText}>LOCAL ONLY</Text>
+          </View>
+        )}
+        {toast && (
+          <View style={[toastStyles.wrap, toast.type==='error'? toastStyles.error : toast.type==='success'? toastStyles.success : toastStyles.info]}>
+            <Text style={toastStyles.text} numberOfLines={2}>{toast.message}</Text>
           </View>
         )}
       </View>
@@ -336,4 +351,12 @@ const stylesLocalOnly = StyleSheet.create({
   backTxt:{ color:'#0288D1', fontSize:14, fontWeight:'700' },
   loadingWrap:{ flex:1, alignItems:'center', justifyContent:'center', padding:24, gap:8 },
   loadingTxt:{ marginTop:8, color:'#607D8B', fontSize:12 }
+});
+
+const toastStyles = StyleSheet.create({
+  wrap:{ position:'absolute', left:16, right:16, bottom:72, paddingVertical:10, paddingHorizontal:14, borderRadius:12, shadowColor:'#000', shadowOpacity:0.25, shadowRadius:6, elevation:6 },
+  text:{ color:'#fff', fontWeight:'700' },
+  info:{ backgroundColor:'#37474F' },
+  success:{ backgroundColor:'#2e7d32' },
+  error:{ backgroundColor:'#c62828' }
 });

@@ -5,8 +5,11 @@ service cloud.firestore {
     // Helpers
     function isSignedIn() { return request.auth != null; }
     function isAdmin() {
-      // Users are admins if users/{uid}.userType == 'admin'
-      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.userType == 'admin';
+      // Users are admins if users/{uid}.userType denotes admin. Allow a tolerant check for accidental trailing space.
+      return isSignedIn() && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.userType == 'admin' ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.userType == 'admin '
+      );
     }
 
     // ===================== Posts & Anonymous Board =====================

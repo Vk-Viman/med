@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../src/theme/ThemeProvider';
-import { listUsers } from '../../src/services/admin';
+import { listUsers, updateUserRole } from '../../src/services/admin';
+import { auth } from '../../firebase/firebaseConfig';
 
 export default function AdminUsers(){
   const router = useRouter();
@@ -10,23 +11,63 @@ export default function AdminUsers(){
   const [q, setQ] = useState('');
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  useEffect(()=>{ (async()=>{ try { const rows = await listUsers({ limit:100 }); setUsers(rows); } catch{} setLoading(false); })(); },[]);
+  const [err, setErr] = useState(null);
+  useEffect(()=>{ (async()=>{ try { const rows = await listUsers({ limit:100 }); setUsers(rows); } catch(e){ setErr(e?.message||'Failed to load users'); } setLoading(false); })(); },[]);
   const filtered = users.filter(u => (u.email||'').toLowerCase().includes(q.toLowerCase()) || (u.displayName||'').toLowerCase().includes(q.toLowerCase()));
   return (
     <View style={{ flex:1, backgroundColor: theme.bg }}>
       <View style={{ padding:12 }}>
         <TextInput placeholder='Search by name or email' placeholderTextColor={theme.textMuted} value={q} onChangeText={setQ} style={[styles.input, { color: theme.text, borderColor: '#90CAF9', backgroundColor: theme.bg === '#0B1722' ? '#0F1E2C' : '#ffffffAA' }]} />
       </View>
-      <FlatList data={filtered} keyExtractor={(item)=> item.id} renderItem={({ item })=> (
-        <TouchableOpacity onPress={()=> router.push(`/admin/user/${item.id}`)} style={[styles.row, { backgroundColor: theme.card }]}> 
-          <Text style={[styles.name, { color: theme.text }]}>{item.displayName || '—'}</Text>
-          <Text style={{ color: theme.textMuted, fontSize:12 }}>{item.email}</Text>
-          <Text style={{ color: item.userType==='admin'? '#2E7D32':'#555', fontWeight:'700', marginTop:4 }}>{item.userType || 'user'}</Text>
-          <View style={{ height:6 }} />
-          {item.lastActivity && <Text style={{ color: theme.textMuted, fontSize:12 }}>Last activity: {formatDate(item.lastActivity)}</Text>}
-          {typeof item.entriesCount === 'number' && <Text style={{ color: theme.textMuted, fontSize:12 }}>Entries: {item.entriesCount}</Text>}
-        </TouchableOpacity>
-      )} contentContainerStyle={{ padding:12, gap:10 }} />
+      {loading ? null : filtered.length === 0 ? (
+        <View style={{ padding:16 }}>
+          <Text style={{ color: theme.textMuted }}>
+            {err ? `Could not load users (${err}). Ensure your account is admin (users/{uid}.userType = 'admin').` : 'No matching users.'}
+          </Text>
+        </View>
+      ) : (
+      <FlatList data={filtered} keyExtractor={(item)=> item.id} renderItem={({ item })=> {
+        const isAdmin = String(item.userType||'').trim().toLowerCase() === 'admin';
+        const isSelf = auth.currentUser?.uid === item.id;
+        const makeRole = async (role)=>{
+          try{
+            if (isSelf && role !== 'admin') {
+              Alert.alert('Blocked', 'You cannot demote your own account.');
+              return;
+            }
+            await updateUserRole(item.id, role);
+            // Optimistic UI update
+            setUsers(prev=> prev.map(u=> u.id===item.id? { ...u, userType: role } : u));
+            Alert.alert('Updated', `Role set to ${role}.`);
+          } catch(e){ Alert.alert('Error', e?.message || 'Failed to update role.'); }
+        };
+        return (
+          <View style={[styles.row, { backgroundColor: theme.card }]}> 
+            <TouchableOpacity onPress={()=> router.push(`/admin/user/${item.id}`)}>
+              <Text style={[styles.name, { color: theme.text }]}>{item.displayName || '—'}</Text>
+              <Text style={{ color: theme.textMuted, fontSize:12 }}>{item.email}</Text>
+              <Text style={{ color: isAdmin? '#2E7D32':'#555', fontWeight:'700', marginTop:4 }}>{isAdmin? 'admin' : (item.userType||'user')}</Text>
+              <View style={{ height:6 }} />
+              {item.lastActivity && <Text style={{ color: theme.textMuted, fontSize:12 }}>Last activity: {formatDate(item.lastActivity)}</Text>}
+              {typeof item.entriesCount === 'number' && <Text style={{ color: theme.textMuted, fontSize:12 }}>Entries: {item.entriesCount}</Text>}
+            </TouchableOpacity>
+            <View style={{ height:8 }} />
+            <View style={{ flexDirection:'row', gap:12 }}>
+              {!isAdmin && (
+                <TouchableOpacity onPress={()=> makeRole('admin')}>
+                  <Text style={{ color:'#2E7D32', fontWeight:'700' }}>Make admin</Text>
+                </TouchableOpacity>
+              )}
+              {isAdmin && !isSelf && (
+                <TouchableOpacity onPress={()=> makeRole('user')}>
+                  <Text style={{ color:'#F57C00', fontWeight:'700' }}>Make user</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        );
+      }} contentContainerStyle={{ padding:12, gap:10 }} />
+      )}
     </View>
   );
 }

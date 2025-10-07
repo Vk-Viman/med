@@ -5,7 +5,17 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 // USERS
 export async function listUsers({ limit=100 } = {}){
-  const snap = await getDocs(query(collection(db, 'users'), orderBy('createdAt','desc'), qlimit(limit)));
+  let snap;
+  try {
+    snap = await getDocs(query(collection(db, 'users'), orderBy('createdAt','desc'), qlimit(limit)));
+  } catch (e) {
+    // Fallback if createdAt is missing or orderBy not possible; permission errors will rethrow later
+    if (String(e?.code||'').includes('failed-precondition') || String(e?.message||'').toLowerCase().includes('order')) {
+      snap = await getDocs(query(collection(db, 'users'), qlimit(limit)));
+    } else {
+      throw e;
+    }
+  }
   const out = []; snap.forEach(d=> out.push({ id:d.id, ...d.data() }));
   // Attach mood counts and last activity (best-effort)
   try {
@@ -97,13 +107,18 @@ export async function deleteGroup(id){
   await deleteDoc(doc(db, `admin_groups/${id}`));
 }
 
+// Flagged posts are those with posts.flagged == true (server moderation sets this)
 export async function listFlaggedPosts(){
-  const snap = await getDocs(query(collection(db, 'flagged_posts'), orderBy('createdAt','desc')));
-  const rows = []; snap.forEach(d=> rows.push({ id:d.id, ...d.data() }));
+  const snap = await getDocs(query(collection(db, 'posts'), where('flagged','==', true), qlimit(50)));
+  const rows = []; snap.forEach(d=> {
+    const data = d.data()||{};
+    rows.push({ id:d.id, preview: data.text || '', text: data.text || '', createdAt: data.createdAt || null, hidden: !!data.hidden });
+  });
   return rows;
 }
 export async function clearFlag(id){
-  await deleteDoc(doc(db, `flagged_posts/${id}`));
+  // Unflag the post and unhide it (admin action)
+  await updateDoc(doc(db, `posts/${id}`), { flagged: false, hidden: false, reviewStatus: 'approved', updatedAt: new Date() });
 }
 
 // CHALLENGES (user-visible)

@@ -79,7 +79,12 @@ export default function AdminProfile(){
 
   const pickAvatar = async () => {
     try {
-      const res = await ImagePicker.launchImageLibraryAsync({ allowsEditing:true, aspect:[1,1], base64:true, quality:0.7 });
+      const pickerOpts = { allowsEditing:true, aspect:[1,1], base64:true, quality:0.7 };
+      try {
+        const mt = (ImagePicker && ImagePicker.MediaType && ImagePicker.MediaType.Images) || (ImagePicker && ImagePicker.MediaTypeOptions && ImagePicker.MediaTypeOptions.Images);
+        if (mt) pickerOpts.mediaTypes = mt;
+      } catch {}
+      const res = await ImagePicker.launchImageLibraryAsync(pickerOpts);
       if(res.canceled) return;
       const asset = res.assets?.[0];
       if(asset?.base64){
