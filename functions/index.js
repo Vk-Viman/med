@@ -182,6 +182,45 @@ exports.recheckReports = functions.region('us-central1').https.onRequest(async (
   }
 });
 
+// Public (signed-in) abuse report endpoint with basic rate limiting per user
+exports.reportAbuse = functions.region('us-central1').https.onRequest(async (req, res) => {
+  res.set('Access-Control-Allow-Origin','*');
+  res.set('Access-Control-Allow-Methods','POST,OPTIONS');
+  res.set('Access-Control-Allow-Headers','Content-Type,Authorization');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  // Verify token
+  let uid = null;
+  try {
+    const m = (req.headers.authorization||'').match(/^Bearer\s+(.*)$/i);
+    if (!m) return res.status(401).json({ error: 'Missing token' });
+    const decoded = await admin.auth().verifyIdToken(m[1]);
+    uid = decoded?.uid || null;
+    if (!uid) return res.status(401).json({ error: 'Unauthorized' });
+  } catch (e) { return res.status(401).json({ error: 'Unauthorized' }); }
+
+  try {
+    const { postId, reason } = req.body || {};
+    if (!postId) return res.status(400).json({ error: 'postId required' });
+    const r = (typeof reason === 'string' && reason.trim()) ? reason.trim().toLowerCase() : 'inappropriate';
+    // Simple rate-limit: 1 report per 10s
+    const rlRef = db.collection('users').doc(uid).collection('private').doc('ratelimit');
+    const rlSnap = await rlRef.get();
+    const now = Date.now();
+    const last = rlSnap.exists ? Number(rlSnap.data().lastReportAt||0) : 0;
+    if (now - last < 10000) {
+      return res.status(429).json({ error: 'Too many reports. Please wait a few seconds.' });
+    }
+    await rlRef.set({ lastReportAt: now }, { merge: true });
+    // Create report doc
+    await db.collection('reports').add({ postId, reason: r, reporterUid: uid, status: 'open', createdAt: admin.firestore.FieldValue.serverTimestamp() });
+    return res.status(200).json({ ok: true });
+  } catch (e) {
+    console.error('reportAbuse error', e);
+    return res.status(500).json({ error: e.message || 'Failed to report' });
+  }
+});
+
 // Helper: aggregate participant minutes per team for one challenge
 async function aggregateTeamsForChallenge(challengeId) {
   const participantsRef = db.collection('challenges').doc(challengeId).collection('participants');

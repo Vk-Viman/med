@@ -267,6 +267,114 @@ export async function deleteAllUserMoods(uid, { batchSize=200 } = {}){
   return total;
 }
 
+// ADMIN: delete all sessions for a user
+export async function deleteAllUserSessions(uid, { batchSize=200 } = {}){
+  const refc = collection(db, `users/${uid}/sessions`);
+  let total = 0;
+  while(true){
+    let snap;
+    try { snap = await getDocs(query(refc, orderBy('endedAt','desc'), qlimit(batchSize))); }
+    catch { snap = await getDocs(query(refc, qlimit(batchSize))); }
+    if (snap.empty) break;
+    const ids = []; snap.forEach(d=> ids.push(d.id));
+    await Promise.all(ids.map(id => deleteDoc(doc(db, `users/${uid}/sessions/${id}`))));
+    total += ids.length;
+    if (ids.length < batchSize) break;
+  }
+  return total;
+}
+
+// ADMIN: delete all favorites for a user
+export async function deleteAllUserFavorites(uid, { batchSize=200 } = {}){
+  const refc = collection(db, `users/${uid}/favorites`);
+  let total = 0;
+  while(true){
+    const snap = await getDocs(query(refc, qlimit(batchSize)));
+    if (snap.empty) break;
+    const ids = []; snap.forEach(d=> ids.push(d.id));
+    await Promise.all(ids.map(id => deleteDoc(doc(db, `users/${uid}/favorites/${id}`))));
+    total += ids.length;
+    if (ids.length < batchSize) break;
+  }
+  return total;
+}
+
+// ADMIN: delete all badges for a user
+export async function deleteAllUserBadges(uid, { batchSize=200 } = {}){
+  const refc = collection(db, `users/${uid}/badges`);
+  let total = 0;
+  while(true){
+    const snap = await getDocs(query(refc, qlimit(batchSize)));
+    if (snap.empty) break;
+    const ids = []; snap.forEach(d=> ids.push(d.id));
+    await Promise.all(ids.map(id => deleteDoc(doc(db, `users/${uid}/badges/${id}`))));
+    total += ids.length;
+    if (ids.length < batchSize) break;
+  }
+  return total;
+}
+
+// ADMIN: reset aggregate stats (non-destructive merge)
+export async function resetUserStats(uid){
+  try {
+    await setDoc(doc(db, `users/${uid}/stats/aggregate`), { totalMinutes: 0, streak: 0, updatedAt: new Date() }, { merge: true });
+    return true;
+  } catch { return false; }
+}
+
+// ADMIN: erase user content across known subcollections
+export async function eraseUserContent(uid){
+  const results = { moods: 0, sessions: 0, favorites: 0, badges: 0 };
+  try { results.moods = await deleteAllUserMoods(uid, { batchSize: 500 }); } catch {}
+  try { results.sessions = await deleteAllUserSessions(uid, { batchSize: 500 }); } catch {}
+  try { results.favorites = await deleteAllUserFavorites(uid, { batchSize: 500 }); } catch {}
+  try { results.badges = await deleteAllUserBadges(uid, { batchSize: 500 }); } catch {}
+  try { await resetUserStats(uid); } catch {}
+  try { await logAdminAction({ action:'erase_user_content', targetUid: uid, meta: { results } }); } catch {}
+  return results;
+}
+
+// PRIVACY: update privacy request with arbitrary patch (status/notes/assignee)
+export async function adminUpdatePrivacyRequest(id, patch){
+  await updateDoc(doc(db, `privacy_requests/${id}`), { ...patch, updatedAt: new Date() });
+  await logAdminAction({ action:'privacy_request_updated', meta: { id, patch } });
+}
+
+// PRIVACY: processing restriction toggle on user profile
+export async function adminSetProcessingRestriction(uid, restricted){
+  await updateDoc(doc(db, `users/${uid}`), { processingRestricted: !!restricted, updatedAt: new Date() });
+  await logAdminAction({ action:'set_processing_restriction', targetUid: uid, meta: { restricted: !!restricted } });
+}
+
+// PRIVACY: analytics opt-out toggle on user profile
+export async function adminSetAnalyticsOptOut(uid, optOut){
+  await updateDoc(doc(db, `users/${uid}`), { analyticsOptOut: !!optOut, updatedAt: new Date() });
+  await logAdminAction({ action:'set_analytics_opt_out', targetUid: uid, meta: { optOut: !!optOut } });
+}
+
+// ADMIN: patch user profile (limited to provided fields)
+export async function adminPatchUserProfile(uid, patch){
+  await updateDoc(doc(db, `users/${uid}`), { ...patch, updatedAt: new Date() });
+  await logAdminAction({ action:'patch_user_profile', targetUid: uid, meta: { keys: Object.keys(patch||{}) } });
+}
+
+// PRIVACY: anonymize all posts authored by user
+export async function anonymizeUserPosts(uid){
+  let count = 0;
+  try {
+    const pSnap = await getDocs(query(collection(db, 'posts'), where('authorUid','==', uid), qlimit(1000)));
+    const updates = [];
+    pSnap.forEach(d => {
+      const anon = `anon_${Math.random().toString(36).slice(2,8)}`;
+      updates.push(updateDoc(doc(db, `posts/${d.id}`), { authorUid: null, anonymized: true, anonId: anon, updatedAt: new Date() }));
+      count++;
+    });
+    await Promise.all(updates);
+  } catch {}
+  await logAdminAction({ action:'anonymize_user_posts', targetUid: uid, meta: { count } });
+  return count;
+}
+
 // PRIVACY REQUESTS (collection: privacy_requests)
 // shape suggestion: { id, uid, type: 'export'|'delete', status: 'open'|'done', createdAt, completedAt, actorUid }
 export async function listPrivacyRequests({ status='open', limit=100 } = {}){
@@ -286,8 +394,32 @@ export async function createPrivacyRequest({ uid, type }){
 
 // ADMIN: generate export artifact, upload JSON to Storage, and patch privacy_request
 export async function adminGenerateExportArtifact(uid, requestId){
-  const rows = await listUserMoodDocs(uid, { limit: 5000 });
-  const payload = { exportedAt: new Date().toISOString(), uid, count: rows.length, entries: rows };
+  // Gather moods
+  const moods = await listUserMoodDocs(uid, { limit: 5000 });
+  // Gather sessions (best-effort)
+  let sessions = [];
+  try {
+    const sSnap = await getDocs(query(collection(db, `users/${uid}/sessions`), orderBy('endedAt','desc'), qlimit(5000)));
+    sSnap.forEach(d => sessions.push({ id: d.id, ...d.data() }));
+  } catch {}
+  // Gather posts authored by this user (best-effort; exclude hidden if needed)
+  let posts = [];
+  try {
+    const pSnap = await getDocs(query(collection(db, 'posts'), where('authorUid','==', uid), qlimit(1000)));
+    pSnap.forEach(d => {
+      const data = d.data() || {};
+      posts.push({ id: d.id, text: data.text || '', createdAt: data.createdAt || null, hidden: !!data.hidden, flagged: !!data.flagged });
+    });
+  } catch {}
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    uid,
+    counts: { moods: moods.length, sessions: sessions.length, posts: posts.length },
+    moods,
+    sessions,
+    posts,
+    meta: { note: 'This export is generated by an admin upon privacy request. Timestamps are Firestore Timestamps when present.' }
+  };
   const json = JSON.stringify(payload, null, 2);
   const ts = Date.now();
   const path = `privacy_exports/${uid}/export_${ts}.json`;
@@ -297,6 +429,65 @@ export async function adminGenerateExportArtifact(uid, requestId){
   await updateDoc(doc(db, `privacy_requests/${requestId}`), { status:'done', completedAt: new Date(), fileUrl: url, storagePath: path });
   await logAdminAction({ action:'export_artifact_generated', targetUid: uid, meta: { requestId, path } });
   return { url, path };
+}
+
+// ADMIN: ban/unban user (soft ban flag on profile)
+export async function adminBanUser(uid, reason=''){
+  await updateDoc(doc(db, `users/${uid}`), { banned: true, banReason: reason||'', updatedAt: new Date() });
+  await logAdminAction({ action:'ban_user', targetUid: uid, meta: { reason } });
+}
+export async function adminUnbanUser(uid){
+  await updateDoc(doc(db, `users/${uid}`), { banned: false, updatedAt: new Date() });
+  await logAdminAction({ action:'unban_user', targetUid: uid });
+}
+
+// ADMIN: global anon mutes stored in admin_mutes collection (doc id is anonId)
+export async function addAdminMuteAnon(anonId, { reason='' } = {}){
+  if(!anonId) return;
+  await setDoc(doc(db, `admin_mutes/${anonId}`), { reason: reason||'', createdAt: new Date(), actorUid: auth.currentUser?.uid||null });
+  await logAdminAction({ action:'add_admin_mute', meta: { anonId, reason } });
+}
+export async function removeAdminMuteAnon(anonId){
+  if(!anonId) return;
+  await deleteDoc(doc(db, `admin_mutes/${anonId}`));
+  await logAdminAction({ action:'remove_admin_mute', meta: { anonId } });
+}
+export async function listAdminMutes({ limit=200 } = {}){
+  const snap = await getDocs(query(collection(db, 'admin_mutes'), orderBy('createdAt','desc'), qlimit(limit)));
+  const rows = []; snap.forEach(d=> rows.push({ id:d.id, ...d.data() }));
+  return rows;
+}
+
+// ADMIN: export moderation reports to CSV and upload to Storage
+export async function adminExportReportsCsv({ status='open', limit=1000 } = {}){
+  const refc = collection(db, 'reports');
+  const q = status==='all' ? query(refc, qlimit(limit)) : query(refc, where('status','==', status), qlimit(limit));
+  const snap = await getDocs(q);
+  const rows = [];
+  snap.forEach(d=> rows.push({ id:d.id, ...(d.data()||{}) }));
+  const headers = ['id','postId','reason','status','reporterUid','createdAt'];
+  const csvLines = [headers.join(',')];
+  for(const r of rows){
+    const vals = [r.id, r.postId||'', r.reason||'', r.status||'', r.reporterUid||'', toIso(r.createdAt)];
+    csvLines.push(vals.map(s => escapeCsv(s)).join(','));
+  }
+  const csv = csvLines.join('\n');
+  const ts = Date.now();
+  const path = `admin_reports/exports/reports_${status}_${ts}.csv`;
+  const r = ref(storage, path);
+  await uploadString(r, csv, 'raw', { contentType: 'text/csv' });
+  const url = await getDownloadURL(r);
+  await logAdminAction({ action:'export_reports_csv', meta: { status, path } });
+  return { url, path, count: rows.length };
+}
+
+function toIso(ts){
+  try { if(!ts) return ''; if(ts?.toDate) return ts.toDate().toISOString(); if(ts instanceof Date) return ts.toISOString(); return ''; } catch { return ''; }
+}
+function escapeCsv(v){
+  const s = String(v??'');
+  if(/[",\n]/.test(s)) return '"' + s.replace(/"/g,'""') + '"';
+  return s;
 }
 
 // ADMIN AUDIT LOGS

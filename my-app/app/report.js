@@ -7,6 +7,7 @@ import { auth } from "../firebase/firebaseConfig";
 import { collection, query, where, onSnapshot, Timestamp, getDocs, orderBy, limit } from "firebase/firestore";
 import { db } from "../firebase/firebaseConfig";
 import { LineChart } from "react-native-chart-kit";
+import { safeSnapshot } from "../src/utils/safeSnapshot";
 import * as LocalAuthentication from "expo-local-authentication";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
@@ -58,7 +59,7 @@ export default function WeeklyReportScreen() {
         collection(db, "users", user.uid, "sessions"),
         where("endedAt", ">=", Timestamp.fromDate(start))
       );
-      const unsub = onSnapshot(q, (snap) => {
+      const unsub = safeSnapshot(q, (snap) => {
         const arrSec = [0, 0, 0, 0, 0, 0, 0];
         snap.forEach((doc) => {
           const d = doc.data();

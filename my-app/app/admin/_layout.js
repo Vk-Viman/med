@@ -10,6 +10,7 @@ export default function AdminLayout(){
   const router = useRouter();
   const { theme } = useTheme();
   const [checking, setChecking] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
   const nav = useNavigation();
   const pathname = usePathname();
   
@@ -18,11 +19,15 @@ export default function AdminLayout(){
     (async()=>{
       try {
         const prof = await getUserProfile();
-        if(!isAdminType(prof?.userType)){
+        const admin = isAdminType(prof?.userType);
+        if(!admin){
           Alert.alert('Access Denied','Admin access required.');
           router.replace('/(tabs)');
+          setIsAdmin(false);
+          setChecking(false);
           return;
         }
+        setIsAdmin(true);
         // Optional biometric gate for admin area if user enabled it
         try {
           const pref = await AsyncStorage.getItem('pref_biometric_enabled_v1');
@@ -35,6 +40,8 @@ export default function AdminLayout(){
               if(!res.success){
                 Alert.alert('Locked','Biometric authentication canceled.');
                 router.replace('/(tabs)');
+                setIsAdmin(false);
+                setChecking(false);
                 return;
               }
             }
@@ -83,6 +90,11 @@ export default function AdminLayout(){
     );
   }
 
+  if(!isAdmin){
+    // Short-circuit render to avoid mounting any admin child screens (and their restricted listeners)
+    return <View style={{ flex:1, backgroundColor: theme.bg }} />;
+  }
+
   const HeaderProfileBtn = () => (
     <TouchableOpacity style={{ paddingHorizontal:12, paddingVertical:6 }} onPress={()=> router.push('/admin/profile')}>
       <Text style={{ color:'#0288D1', fontWeight:'700' }}>Profile</Text>
@@ -100,6 +112,8 @@ export default function AdminLayout(){
       <Stack.Screen name="plans" options={{ title: 'Plans' }} />
       <Stack.Screen name="community" options={{ title: 'Community' }} />
       <Stack.Screen name="privacy" options={{ title: 'Privacy Center' }} />
+      <Stack.Screen name="audit" options={{ title: 'Audit Log' }} />
+      <Stack.Screen name="moderation" options={{ title: 'Moderation' }} />
     </Stack>
   );
 }

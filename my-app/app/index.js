@@ -15,6 +15,7 @@ import { auth, db } from "../firebase/firebaseConfig";
 import { evaluateStreakBadges, listUserBadges, badgeEmoji } from "../src/badges";
 import Sparkline from "../src/components/Sparkline";
 import { collection, query, where, orderBy, onSnapshot, Timestamp, getDocs, doc, getDoc } from 'firebase/firestore';
+import { safeSnapshot, trackSubscription } from '../src/utils/safeSnapshot';
 import { ensureAndroidNotificationChannel } from '../src/notifications';
 import * as Haptics from 'expo-haptics';
 import LottieView from 'lottie-react-native';
@@ -163,7 +164,7 @@ export default function HomeScreen() {
   useEffect(()=>{
     const uid = auth.currentUser?.uid; if(!uid) return;
     const ref = collection(db, `users/${uid}/badges`);
-    const unsub = onSnapshot(query(ref, orderBy('awardedAt','desc')), async (snap)=>{
+  const unsub = safeSnapshot(query(ref, orderBy('awardedAt','desc')), async (snap)=>{
       const first = snap.docs[0];
       if(!first) return;
       const id = first.id;
@@ -176,6 +177,9 @@ export default function HomeScreen() {
         const Notifications = await import('expo-notifications');
         await Notifications.scheduleNotificationAsync({ content:{ title:'New Badge Earned', body: first.data()?.name || id }, trigger: null });
       } catch {}
+    }, (err) => {
+      if (err?.code === 'permission-denied' || err?.code === 'unauthenticated') return;
+      console.warn('badges listener error', err);
     });
     return ()=>{ try{ unsub(); }catch{} };
   },[]);
@@ -288,7 +292,7 @@ export default function HomeScreen() {
     start.setDate(start.getDate() - 6);
     const startTs = Timestamp.fromDate(start);
     const qRef = query(collection(db, `users/${uid}/moods`), where('createdAt','>=', startTs), orderBy('createdAt','asc'));
-    const unsub = onSnapshot(qRef, (snap)=>{
+  const unsub = safeSnapshot(qRef, (snap)=>{
       const items = []; snap.forEach(d=> items.push({ id:d.id, ...d.data() }));
       // compute latest
       let latest = null;

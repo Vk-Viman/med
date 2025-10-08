@@ -12,6 +12,8 @@ import { registerPushTokens } from "../src/services/pushTokens";
 import { openFromNotificationData, wireForegroundHandler } from "../src/services/pushNavigation";
 import { DeviceEventEmitter as RNEmitter } from 'react-native';
 import { auth } from "../firebase/firebaseConfig";
+import { clearUserSubscriptions } from '../src/utils/safeSnapshot';
+import { onAuthStateChanged } from 'firebase/auth';
 
 const AUTO_LOCK_KEY = 'privacy_auto_lock_seconds_v1';
 const LAST_ROUTE_BEFORE_LOCK_KEY = 'last_route_before_lock_v1';
@@ -205,6 +207,16 @@ export default function Layout() {
   const router = useRouter();
   const pathname = usePathname();
   const [isBootstrapping, setIsBootstrapping] = useState(true);
+  // Global auth observer to clear user-scoped subscriptions on sign-out/delete
+  useEffect(()=>{
+    const unsub = onAuthStateChanged(auth, (u)=>{
+      if(!u){
+        // Tear down any tracked listeners immediately when no user
+        try { clearUserSubscriptions(); } catch {}
+      }
+    });
+    return ()=> { try { unsub(); } catch {} };
+  },[]);
 
   // Tiny loading gate to prevent initial flicker while resolving auth + profile
   useEffect(() => {

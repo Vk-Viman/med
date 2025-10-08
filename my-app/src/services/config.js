@@ -9,6 +9,14 @@ const DEFAULTS = {
   allowMeditations: true,
   allowPlans: true,
   allowCommunity: true,
+  // Community limits & terms
+  communityMaxLength: 300,
+  communityAllowLinks: false,
+  postCooldownMs: 15000,
+  replyCooldownMs: 10000,
+  termsShort: 'Be kind and respectful. No hate speech, harassment, or sharing personal info. Avoid links and spam. Content may be auto-hidden and reviewed.',
+  termsCategories: ['Respect', 'Safety', 'No spam', 'No links'],
+  termsFullUrl: '',
 };
 
 export async function getAdminConfig(){

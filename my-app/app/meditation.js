@@ -8,6 +8,7 @@ import { colors, spacing } from "../src/theme";
 import GradientBackground from "../src/components/GradientBackground";
 import { auth, db } from "../firebase/firebaseConfig";
 import { collection, onSnapshot, query, where, Timestamp, doc, getDocs } from "firebase/firestore";
+import { safeSnapshot } from "../src/utils/safeSnapshot";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams } from 'expo-router';
 import { Alert } from 'react-native';
@@ -36,7 +37,7 @@ export default function MeditationPlayerScreen() {
       collection(db, "users", user.uid, "sessions"),
       where("endedAt", ">=", Timestamp.fromDate(startOfDay))
     );
-    const unsub = onSnapshot(q, (snap) => {
+  const unsub = safeSnapshot(q, (snap) => {
       let totalSec = 0;
       snap.forEach((d) => {
         const data = d.data();
@@ -94,7 +95,7 @@ export default function MeditationPlayerScreen() {
       if (auth.currentUser && auth.currentUser.uid) {
         try {
           const ref = collection(db, 'users', auth.currentUser.uid, 'favorites');
-          unsub = onSnapshot(ref, async (snap) => {
+          unsub = safeSnapshot(ref, async (snap) => {
             const ids = snap.docs.map(d => d.id);
             await loadFromIds(ids);
           });

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Switch, StyleSheet, Alert } from 'react-native';
+import { View, Text, Switch, StyleSheet, Alert, TextInput, ScrollView } from 'react-native';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import PrimaryButton from '../../src/components/PrimaryButton';
 import { getAdminConfig, setAdminConfigPatch, subscribeAdminConfig } from '../../src/services/config';
@@ -32,7 +32,7 @@ export default function AdminSettings(){
     </View>
   );
   return (
-    <View style={{ flex:1, backgroundColor: theme.bg, padding:16 }}>
+    <ScrollView style={{ flex:1, backgroundColor: theme.bg }} contentContainerStyle={{ padding:16, paddingBottom:32 }} keyboardShouldPersistTaps='handled'>
       <Text style={[styles.h1, { color: theme.text }]}>Admin Settings</Text>
       <Text style={{ color: theme.textMuted, marginBottom:12 }}>Enable/disable modules and advanced tools visible to users.</Text>
       <Row label='Allow Exports' value={cfg.allowExports} onValueChange={toggle('allowExports')} />
@@ -42,12 +42,99 @@ export default function AdminSettings(){
       <Row label='Allow Plans' value={cfg.allowPlans} onValueChange={toggle('allowPlans')} />
       <Row label='Allow Community' value={cfg.allowCommunity} onValueChange={toggle('allowCommunity')} />
       <View style={{ height:16 }} />
-      <PrimaryButton title={saving? 'Saving...' : 'Save'} disabled fullWidth />
-    </View>
+      <Text style={[styles.h1, { color: theme.text }]}>Community Limits & Terms</Text>
+      <View style={{ height:8 }} />
+      <Text style={[styles.label, { color: theme.text }]}>Max Post/Reply Length</Text>
+      <TextInput
+        style={[styles.input, { borderColor: theme.card, color: theme.text, backgroundColor: theme.card }]}
+        value={String(cfg.communityMaxLength || 300)}
+        onChangeText={(v)=> setCfg(c=> ({ ...c, communityMaxLength: parseInt(v||'0',10)||0 }))}
+        keyboardType='number-pad'
+        placeholder='300'
+        placeholderTextColor={theme.textMuted}
+      />
+      <View style={{ height:8 }} />
+      <Row label='Allow Links in Posts' value={!!cfg.communityAllowLinks} onValueChange={toggle('communityAllowLinks')} />
+      <View style={{ height:8 }} />
+      <Text style={[styles.label, { color: theme.text }]}>Post Cooldown (ms)</Text>
+      <TextInput
+        style={[styles.input, { borderColor: theme.card, color: theme.text, backgroundColor: theme.card }]}
+        value={String(cfg.postCooldownMs || 15000)}
+        onChangeText={(v)=> setCfg(c=> ({ ...c, postCooldownMs: parseInt(v||'0',10)||0 }))}
+        keyboardType='number-pad'
+        placeholder='15000'
+        placeholderTextColor={theme.textMuted}
+      />
+      <View style={{ height:8 }} />
+      <Text style={[styles.label, { color: theme.text }]}>Reply Cooldown (ms)</Text>
+      <TextInput
+        style={[styles.input, { borderColor: theme.card, color: theme.text, backgroundColor: theme.card }]}
+        value={String(cfg.replyCooldownMs || 10000)}
+        onChangeText={(v)=> setCfg(c=> ({ ...c, replyCooldownMs: parseInt(v||'0',10)||0 }))}
+        keyboardType='number-pad'
+        placeholder='10000'
+        placeholderTextColor={theme.textMuted}
+      />
+      <View style={{ height:8 }} />
+      <Text style={[styles.label, { color: theme.text }]}>Guidelines Summary (shown in app)</Text>
+      <TextInput
+        style={[styles.textarea, { borderColor: theme.card, color: theme.text, backgroundColor: theme.card }]}
+        value={cfg.termsShort || ''}
+        onChangeText={(v)=> setCfg(c=> ({ ...c, termsShort: v }))}
+        multiline
+        numberOfLines={4}
+        placeholder='Write a short, friendly summary of the rules users must accept.'
+        placeholderTextColor={theme.textMuted}
+      />
+      <View style={{ height:8 }} />
+      <Text style={[styles.label, { color: theme.text }]}>Categories (comma-separated)</Text>
+      <TextInput
+        style={[styles.input, { borderColor: theme.card, color: theme.text, backgroundColor: theme.card }]}
+        value={(Array.isArray(cfg.termsCategories)? cfg.termsCategories.join(', ') : '')}
+        onChangeText={(v)=> setCfg(c=> ({ ...c, termsCategories: v.split(',').map(s=> s.trim()).filter(Boolean) }))}
+        placeholder='Respect, Safety, No spam, No links'
+        placeholderTextColor={theme.textMuted}
+      />
+      <View style={{ height:8 }} />
+      <Text style={[styles.label, { color: theme.text }]}>Full Terms URL</Text>
+      <TextInput
+        style={[styles.input, { borderColor: theme.card, color: theme.text, backgroundColor: theme.card }]}
+        value={cfg.termsFullUrl || ''}
+        onChangeText={(v)=> setCfg(c=> ({ ...c, termsFullUrl: v }))}
+        placeholder='https://example.com/terms'
+        placeholderTextColor={theme.textMuted}
+        autoCapitalize='none'
+        autoCorrect={false}
+      />
+      <View style={{ height:16 }} />
+      <PrimaryButton
+        title={saving? 'Saving...' : 'Save'}
+        onPress={async ()=>{
+          if(saving) return; setSaving(true);
+          try{
+            const patch = {
+              communityMaxLength: Number(cfg.communityMaxLength)||300,
+              communityAllowLinks: !!cfg.communityAllowLinks,
+              postCooldownMs: Number(cfg.postCooldownMs)||15000,
+              replyCooldownMs: Number(cfg.replyCooldownMs)||10000,
+              termsShort: cfg.termsShort || '',
+              termsCategories: Array.isArray(cfg.termsCategories)? cfg.termsCategories : [],
+              termsFullUrl: cfg.termsFullUrl || '',
+            };
+            await setAdminConfigPatch(patch);
+            Alert.alert('Saved','Community settings updated.');
+          }catch(e){ Alert.alert('Save Failed', e.message||'Error'); }
+          finally{ setSaving(false); }
+        }}
+        fullWidth
+      />
+    </ScrollView>
   );
 }
 const styles = StyleSheet.create({
   h1:{ fontSize:20, fontWeight:'800' },
   row:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingVertical:10 },
-  label:{ fontSize:14, fontWeight:'700' }
+  label:{ fontSize:14, fontWeight:'700' },
+  input:{ borderWidth:1, borderRadius:8, paddingHorizontal:10, paddingVertical:8 },
+  textarea:{ borderWidth:1, borderRadius:8, paddingHorizontal:10, paddingVertical:8, minHeight:100, textAlignVertical:'top' }
 });

@@ -2,7 +2,7 @@
 import { initializeApp } from "firebase/app";
 import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore, memoryLocalCache } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
@@ -29,5 +29,6 @@ if (Platform.OS === 'web') {
   });
 }
 export const auth = authInstance;
-export const db = getFirestore(app);
+// Use in-memory local cache to avoid BloomFilter warnings on certain SDK versions
+export const db = initializeFirestore(app, { localCache: memoryLocalCache() });
 export const storage = getStorage(app);

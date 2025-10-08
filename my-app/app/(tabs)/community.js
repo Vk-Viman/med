@@ -9,6 +9,8 @@ import { getBadgeMeta, nextMinuteThreshold, nextStreakThreshold, progressTowards
 import { getCachedAggStats, setCachedAggStats } from "../../src/utils/statsCache";
 import { useTheme } from "../../src/theme/ThemeProvider";
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { subscribeAdminConfig } from '../../src/services/config';
+import { safeSnapshot, trackSubscription } from '../../src/utils/safeSnapshot';
 
 export default function CommunityScreen() {
   const { theme } = useTheme();
@@ -31,8 +33,10 @@ export default function CommunityScreen() {
   const [repliesModal, setRepliesModal] = useState(null); // { post, items, lastDoc, hasMore, loading }
   const [lastPostAt, setLastPostAt] = useState(0);
   const [lastReplyAt, setLastReplyAt] = useState(0);
-  const POST_COOLDOWN_MS = 15000; // 15s cooldown
-  const REPLY_COOLDOWN_MS = 10000; // 10s cooldown
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  // defaults; admin-config can override
+  let POST_COOLDOWN_MS = 15000; // 15s cooldown
+  let REPLY_COOLDOWN_MS = 10000; // 10s cooldown
   const [leaderboard, setLeaderboard] = useState([]);
   const [joinedMap, setJoinedMap] = useState({}); // { [challengeId]: { joined:true, minutes:number, rank:number|null, total:number|null } }
   const [progressMap, setProgressMap] = useState({}); // { [challengeId]: percent }
@@ -42,6 +46,8 @@ export default function CommunityScreen() {
   const [badgeModal, setBadgeModal] = useState(null); // { id, name }
   const scrollRef = useRef(null);
   const [showTop, setShowTop] = useState(false);
+  const [cfg, setCfg] = useState({ communityMaxLength:300, communityAllowLinks:false, postCooldownMs:15000, replyCooldownMs:10000, termsShort:'', termsCategories:[], termsFullUrl:'' });
+  const [isBanned, setIsBanned] = useState(false);
 
   const fmtDate = (ts)=>{
     try{
@@ -57,7 +63,7 @@ export default function CommunityScreen() {
     // Challenges
     try {
       const chRef = collection(db, 'challenges');
-      const u = onSnapshot(chRef, (snap)=>{
+      const u = safeSnapshot(chRef, (snap)=>{
         const rows = snap.docs.map(d=> ({ id:d.id, ...d.data() }));
         setChallenges(rows);
       });
@@ -80,8 +86,13 @@ export default function CommunityScreen() {
         const pRef = query(collection(db, 'posts'), orderBy('createdAt','desc'), limit(10));
         const psnap = await getDocs(pRef);
         const rows = psnap.docs.map(d=> ({ id:d.id, _snap:d, ...d.data() }));
-        const filtered = rows.filter(p=> !p.hidden && !(p.anonId && mutedAnonIds.has(p.anonId)));
+        // Fetch global admin mutes (best-effort)
+        let globalMutes = new Set();
+        try { const gm = await getDocs(collection(db, 'admin_mutes')); globalMutes = new Set(gm.docs.map(d=> d.id)); } catch {}
+        const filtered = rows.filter(p=> !p.hidden && !(p.anonId && (mutedAnonIds.has(p.anonId) || globalMutes.has(p.anonId))));
         setPosts(filtered);
+        // Best-effort: hydrate counts from subcollections so counts persist across sessions even without Functions
+        try { await hydrateCountsForPosts(filtered); } catch {}
         setLastPostDoc(psnap.docs[psnap.docs.length-1] || null);
         setHasMore(psnap.docs.length === 10);
       } catch {} finally { setLoadingPosts(false); }
@@ -90,12 +101,29 @@ export default function CommunityScreen() {
     if (auth.currentUser) {
       try {
         const bRef = collection(db, 'users', auth.currentUser.uid, 'badges');
-        const u = onSnapshot(bRef, (snap)=>{ setBadges(snap.docs.map(d=> ({ id:d.id, ...d.data() }))); });
+        const u = safeSnapshot(bRef, (snap)=>{ setBadges(snap.docs.map(d=> ({ id:d.id, ...d.data() }))); });
         unsubs.push(u);
       } catch {}
     }
     return () => { unsubs.forEach(fn=> { try { fn(); } catch {} }); };
   }, []);
+
+  // Subscribe to admin config for dynamic limits and terms
+  useEffect(()=>{
+    let unsub;
+    try { unsub = subscribeAdminConfig((c)=> setCfg(c)); } catch {}
+    return ()=>{ try{ unsub && unsub(); }catch{} };
+  },[]);
+
+  // Listen to current user's profile for ban state
+  useEffect(()=>{
+    const uid = auth.currentUser?.uid; if(!uid) return;
+    try {
+      const uref = doc(db, 'users', uid);
+      const unsub = safeSnapshot(uref, (snap)=>{ try { setIsBanned(!!(snap.data()?.banned)); } catch { setIsBanned(false); } });
+      return ()=>{ try{ unsub&&unsub(); }catch{} };
+    } catch { setIsBanned(false); }
+  }, [auth.currentUser?.uid]);
 
   // Fetch aggregate stats for progress chips (with fast fallback if missing)
   useEffect(()=>{
@@ -124,7 +152,7 @@ export default function CommunityScreen() {
       // Participants snapshot
       try {
         const pref = collection(db, 'challenges', ch.id, 'participants');
-        const u = onSnapshot(pref, (psnap)=>{
+        const u = safeSnapshot(pref, (psnap)=>{
           const rows = psnap.docs.map(d=> ({ uid:d.id, ...(d.data()||{}) }));
           // Leaderboard for the first challenge
           // (Keep original behavior but recompute in realtime)
@@ -178,7 +206,7 @@ export default function CommunityScreen() {
       // Teams snapshot (names)
       try {
         const tref = collection(db, 'challenges', ch.id, 'teams');
-        const u = onSnapshot(tref, (tsnap)=>{
+        const u = safeSnapshot(tref, (tsnap)=>{
           const teams = tsnap.docs.map(d=> ({ id:d.id, name:(d.data()?.name||d.id), minutes: Number(d.data()?.totalMinutes||0) }));
           teams.sort((a,b)=> b.minutes - a.minutes);
           setTeamsMap(prev => ({ ...prev, [ch.id]: teams.slice(0,3) }));
@@ -188,7 +216,7 @@ export default function CommunityScreen() {
       // Feed snapshot (recent)
       try {
         const fref = query(collection(db, 'challenges', ch.id, 'feed'), orderBy('createdAt','desc'), limit(3));
-        const u = onSnapshot(fref, (fsnap)=>{
+        const u = safeSnapshot(fref, (fsnap)=>{
           const items = fsnap.docs.map(d=> ({ id:d.id, ...d.data() }));
           setFeedMap(prev => ({ ...prev, [ch.id]: items }));
         });
@@ -201,7 +229,14 @@ export default function CommunityScreen() {
   // Guidelines banner persistence
   useEffect(()=>{
     (async()=>{
-      try { const v = await AsyncStorage.getItem('@guidelinesDismissed'); setShowGuidelines(v===null); } catch { setShowGuidelines(true); }
+      try {
+        const v = await AsyncStorage.getItem('@guidelinesDismissed');
+        setShowGuidelines(v===null);
+      } catch { setShowGuidelines(true); }
+      try {
+        const ta = await AsyncStorage.getItem('@termsAcceptedV1');
+        setTermsAccepted(ta === '1');
+      } catch {}
     })();
   },[]);
 
@@ -210,6 +245,14 @@ export default function CommunityScreen() {
     setShowGuidelines(false);
   };
 
+  const acceptTerms = async ()=>{
+    try { await AsyncStorage.setItem('@termsAcceptedV1','1'); } catch {}
+    setTermsAccepted(true);
+  };
+
+  const MAX_LEN = Number(cfg.communityMaxLength || 300);
+  const hasLink = (t)=> /(?:https?:\/\/|www\.)/i.test(t||'');
+
   const loadMorePosts = async ()=>{
     if(loadingMore || !hasMore || !lastPostDoc) return;
     setLoadingMore(true);
@@ -217,7 +260,10 @@ export default function CommunityScreen() {
       const pRef = query(collection(db, 'posts'), orderBy('createdAt','desc'), startAfter(lastPostDoc), limit(10));
       const psnap = await getDocs(pRef);
       const rows = psnap.docs.map(d=> ({ id:d.id, _snap:d, ...d.data() }));
-      const filtered = rows.filter(p=> !p.hidden && !(p.anonId && mutedAnonIds.has(p.anonId)));
+      // apply admin mutes again
+      let globalMutes = new Set();
+      try { const gm = await getDocs(collection(db, 'admin_mutes')); globalMutes = new Set(gm.docs.map(d=> d.id)); } catch {}
+      const filtered = rows.filter(p=> !p.hidden && !(p.anonId && (mutedAnonIds.has(p.anonId) || globalMutes.has(p.anonId))));
       setPosts(prev=> [...prev, ...filtered]);
       setLastPostDoc(psnap.docs[psnap.docs.length-1] || null);
       setHasMore(psnap.docs.length === 10);
@@ -271,10 +317,24 @@ export default function CommunityScreen() {
 
   const addReply = async (postId)=>{
     if(!replyText.trim()) return;
+    if(isBanned){ Alert.alert('Action blocked','Your account is restricted from posting.'); return; }
+    if(!termsAccepted){
+      Alert.alert('Accept guidelines', 'Please accept the Community Guidelines & Terms before participating.');
+      return;
+    }
+    if(replyText.length > MAX_LEN){
+      Alert.alert('Too long', `Replies are limited to ${MAX_LEN} characters.`);
+      return;
+    }
+    if(!cfg.communityAllowLinks && hasLink(replyText)){
+      Alert.alert('Links not allowed', 'Please remove links from your reply.');
+      return;
+    }
     const now = Date.now();
     const delta = now - lastReplyAt;
-    if(delta < REPLY_COOLDOWN_MS){
-      const wait = Math.ceil((REPLY_COOLDOWN_MS - delta)/1000);
+    const REPLY_MS = Number(cfg.replyCooldownMs||REPLY_COOLDOWN_MS);
+    if(delta < REPLY_MS){
+      const wait = Math.ceil((REPLY_MS - delta)/1000);
       return Alert.alert('Slow down', `Please wait ${wait}s before replying again.`);
     }
     const safe = await ensurePostIsSafe(replyText.trim());
@@ -288,6 +348,12 @@ export default function CommunityScreen() {
       }
   // Optimistically bump repliesCount on the parent post in UI
       setPosts(prev=> prev.map(p=> p.id===postId? { ...p, repliesCount: (p.repliesCount||0)+1 } : p));
+  // Refresh accurate replies count from subcollection (best-effort)
+      try {
+        const rsnap = await getDocs(collection(db,'posts',postId,'replies'));
+        const count = rsnap?.docs?.length || 0;
+        setPosts(prev=> prev.map(p=> p.id===postId? { ...p, repliesCount: count } : p));
+      } catch {}
   // Check server-side rate limit flag
   try { await new Promise(r=> setTimeout(r, 400)); const rs = await getDoc(newReplyRef); if(rs?.exists?.()){ const rd = rs.data()||{}; if(rd.reviewStatus==='rate_limited'){ try { const { DeviceEventEmitter } = await import('react-native'); DeviceEventEmitter.emit('app-toast', { message:'Please wait a few seconds before replying again.', type:'info' }); } catch { /* no-op */ } } } } catch {}
     } catch (e){
@@ -301,9 +367,20 @@ export default function CommunityScreen() {
   const submitReport = async (post, reason)=>{
     if(!auth.currentUser) return;
     try {
-      await addDoc(collection(db,'reports'), { postId: post.id, reason: reason || 'inappropriate', reporterUid: auth.currentUser.uid, createdAt: serverTimestamp(), status: 'open' });
+      const token = await auth.currentUser.getIdToken();
+      const projectId = auth?.app?.options?.projectId || '';
+      const url = `https://us-central1-${projectId}.cloudfunctions.net/reportAbuse`;
+      const resp = await fetch(url, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify({ postId: post.id, reason: reason || 'inappropriate' }) });
+      if(!resp.ok){
+        const data = await resp.json().catch(()=>({}));
+        if(resp.status===429){ throw new Error(data?.error || 'Too many reports. Please try again shortly.'); }
+        // Fallback to Firestore write if function unavailable
+        await addDoc(collection(db,'reports'), { postId: post.id, reason: reason || 'inappropriate', reporterUid: auth.currentUser.uid, createdAt: serverTimestamp(), status: 'open' });
+      }
       Alert.alert('Reported', 'Thanks for the report. Our moderators will review it.');
-    } catch {}
+    } catch(e){
+      Alert.alert('Report failed', e?.message || 'Please try again.');
+    }
     setReporting(null);
   };
 
@@ -390,10 +467,24 @@ export default function CommunityScreen() {
 
   const submitPost = async () => {
     if (!message.trim()) return;
+    if(isBanned){ Alert.alert('Action blocked','Your account is restricted from posting.'); return; }
+    if(!termsAccepted){
+      Alert.alert('Accept guidelines', 'Please accept the Community Guidelines & Terms before posting.');
+      return;
+    }
+    if(message.length > MAX_LEN){
+      Alert.alert('Too long', `Posts are limited to ${MAX_LEN} characters.`);
+      return;
+    }
+    if(!cfg.communityAllowLinks && hasLink(message)){
+      Alert.alert('Links not allowed', 'Please remove links from your post.');
+      return;
+    }
     const now = Date.now();
     const delta = now - lastPostAt;
-    if(delta < POST_COOLDOWN_MS){
-      const wait = Math.ceil((POST_COOLDOWN_MS - delta)/1000);
+    const POST_MS = Number(cfg.postCooldownMs||POST_COOLDOWN_MS);
+    if(delta < POST_MS){
+      const wait = Math.ceil((POST_MS - delta)/1000);
       return Alert.alert('Slow down', `Please wait ${wait}s before posting again.`);
     }
     const safe = await ensurePostIsSafe(message.trim());
@@ -423,7 +514,10 @@ export default function CommunityScreen() {
       }
     } catch {}
     const pSnap = await getDocs(query(collection(db, "posts"), orderBy("createdAt", "desc")));
-    setPosts(pSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+    const newList = pSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    setPosts(newList);
+    // Hydrate the first page for accurate counts
+    try { await hydrateCountsForPosts(newList.slice(0, 10)); } catch {}
   };
 
   // Replies modal helpers
@@ -739,6 +833,36 @@ export default function CommunityScreen() {
               <Button title='Close' onPress={()=> setRepliesModal(null)} />
             </Pressable>
           </Pressable>
+        </Modal>
+      )}
+
+      {/* Blocking Terms & Guidelines modal */}
+      {!termsAccepted && (
+        <Modal visible transparent animationType='fade' onRequestClose={()=>{}}>
+          <View style={{ flex:1, backgroundColor:'rgba(0,0,0,0.6)', alignItems:'center', justifyContent:'center', padding:20 }}>
+            <View style={{ width:'100%', maxWidth:480, backgroundColor: theme.card, borderRadius:16, padding:16 }}>
+              <Text style={{ color: theme.text, fontWeight:'800', fontSize:18, marginBottom:6 }}>Community Guidelines & Terms</Text>
+              {!!(cfg.termsCategories||[]).length && (
+                <View style={{ marginBottom:8 }}>
+                  {(cfg.termsCategories||[]).map((cat, idx)=> (
+                    <Text key={idx} style={{ color: theme.textMuted, fontSize:14 }}>• {cat}</Text>
+                  ))}
+                </View>
+              )}
+              <Text style={{ color: theme.textMuted, fontSize:14 }}>
+                {cfg.termsShort || 'Be kind and respectful. No hate speech, harassment, threats, or sharing personal information. Avoid links and spam. Posts may be auto-hidden and reviewed by moderators.'}
+              </Text>
+              {!!cfg.termsFullUrl && (
+                <View style={{ marginTop:8 }}>
+                  <Text style={{ color: '#0288D1' }} onPress={()=>{
+                    try { const Linking = require('react-native').Linking; Linking.openURL(cfg.termsFullUrl); } catch {}
+                  }}>View full terms</Text>
+                </View>
+              )}
+              <View style={{ height:10 }} />
+              <Button title="I agree" onPress={acceptTerms} />
+            </View>
+          </View>
         </Modal>
       )}
     </SafeAreaView>

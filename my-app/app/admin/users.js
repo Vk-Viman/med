@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../src/theme/ThemeProvider';
-import { listUsers, updateUserRole } from '../../src/services/admin';
+import { listUsers, updateUserRole, adminBanUser, adminUnbanUser } from '../../src/services/admin';
 import { auth } from '../../firebase/firebaseConfig';
 
 export default function AdminUsers(){
@@ -28,7 +28,8 @@ export default function AdminUsers(){
       ) : (
       <FlatList data={filtered} keyExtractor={(item)=> item.id} renderItem={({ item })=> {
         const isAdmin = String(item.userType||'').trim().toLowerCase() === 'admin';
-        const isSelf = auth.currentUser?.uid === item.id;
+  const isSelf = auth.currentUser?.uid === item.id;
+  const isBanned = !!item.banned;
         const makeRole = async (role)=>{
           try{
             if (isSelf && role !== 'admin') {
@@ -48,6 +49,7 @@ export default function AdminUsers(){
               <Text style={{ color: theme.textMuted, fontSize:12 }}>{item.email}</Text>
               <Text style={{ color: isAdmin? '#2E7D32':'#555', fontWeight:'700', marginTop:4 }}>{isAdmin? 'admin' : (item.userType||'user')}</Text>
               <View style={{ height:6 }} />
+              {isBanned && <Text style={{ color:'#D32F2F', fontSize:12, fontWeight:'700' }}>BANNED</Text>}
               {item.lastActivity && <Text style={{ color: theme.textMuted, fontSize:12 }}>Last activity: {formatDate(item.lastActivity)}</Text>}
               {typeof item.entriesCount === 'number' && <Text style={{ color: theme.textMuted, fontSize:12 }}>Entries: {item.entriesCount}</Text>}
             </TouchableOpacity>
@@ -61,6 +63,28 @@ export default function AdminUsers(){
               {isAdmin && !isSelf && (
                 <TouchableOpacity onPress={()=> makeRole('user')}>
                   <Text style={{ color:'#F57C00', fontWeight:'700' }}>Make user</Text>
+                </TouchableOpacity>
+              )}
+              {!isBanned && (
+                <TouchableOpacity onPress={async()=>{
+                  try {
+                    await adminBanUser(item.id, 'Policy violation');
+                    setUsers(prev=> prev.map(u=> u.id===item.id? { ...u, banned: true } : u));
+                    Alert.alert('Banned','User has been banned.');
+                  } catch(e){ Alert.alert('Error', e?.message||'Failed to ban'); }
+                }}>
+                  <Text style={{ color:'#D32F2F', fontWeight:'700' }}>Ban</Text>
+                </TouchableOpacity>
+              )}
+              {isBanned && (
+                <TouchableOpacity onPress={async()=>{
+                  try {
+                    await adminUnbanUser(item.id);
+                    setUsers(prev=> prev.map(u=> u.id===item.id? { ...u, banned: false } : u));
+                    Alert.alert('Unbanned','User has been unbanned.');
+                  } catch(e){ Alert.alert('Error', e?.message||'Failed to unban'); }
+                }}>
+                  <Text style={{ color:'#2E7D32', fontWeight:'700' }}>Unban</Text>
                 </TouchableOpacity>
               )}
             </View>

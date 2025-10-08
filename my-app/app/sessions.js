@@ -3,6 +3,7 @@ import { View, Text, FlatList, StyleSheet, RefreshControl, TouchableOpacity, Ale
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../firebase/firebaseConfig';
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { safeSnapshot } from '../src/utils/safeSnapshot';
 import { colors, spacing } from '../src/theme';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -58,7 +59,7 @@ export default function SessionsScreen() {
       collection(db, 'users', user.uid, 'sessions'),
       orderBy('endedAt', 'desc')
     );
-    const unsub = onSnapshot(q, (snap) => {
+    const unsub = safeSnapshot(q, (snap) => {
       const list = [];
       snap.forEach((d) => list.push({ id: d.id, ...d.data() }));
       setItems(list);
