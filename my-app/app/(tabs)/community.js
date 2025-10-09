@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, FlatList, TextInput, Button, Alert, ScrollView,
 import { SafeAreaView } from "react-native-safe-area-context";
 import { db, auth } from "../../firebase/firebaseConfig";
 import { collection, doc, addDoc, getDoc, getDocs, setDoc, query, where, orderBy, serverTimestamp, updateDoc, increment, limit, onSnapshot, startAfter, deleteDoc } from "firebase/firestore";
+import { inboxAdd } from '../../src/services/inbox';
 import { ensurePostIsSafe } from "../../src/moderation";
 import { updateUserStats, evaluateAndAwardBadges, awardFirstPostIfNeeded, awardBadge, badgeEmoji } from "../../src/badges";
 import { getBadgeMeta, nextMinuteThreshold, nextStreakThreshold, progressTowards } from "../../src/constants/badges";
@@ -425,6 +426,57 @@ export default function CommunityScreen() {
         const count = rsnap?.docs?.length || 0;
         setPosts(prev=> prev.map(p=> p.id===postId? { ...p, repliesCount: count } : p));
       } catch {}
+  // Notify original post author (inbox) if different user
+  try {
+    const postSnap = await getDoc(doc(db,'posts',postId));
+    const postData = postSnap?.data?.();
+    const authorUid = postData?.authorUid || postData?.uid || null;
+    const currentUid = auth.currentUser?.uid || null;
+    if(authorUid && currentUid && authorUid !== currentUid){
+      // Honor notification preference of target user (replies)
+      try {
+        const profSnap = await getDoc(doc(db,'users',authorUid));
+        const profData = profSnap?.data?.()||{};
+        if(profData.notifyReplies !== false){
+          await inboxAdd({ uid: authorUid, type:'reply', title:'New reply', body: (replyText.trim().slice(0,80) || 'You have a new reply'), data:{ postId } });
+        }
+      } catch {}
+      try { const { DeviceEventEmitter } = await import('react-native'); DeviceEventEmitter.emit('app-toast', { message:'Reply sent', type:'success' }); } catch {}
+    }
+  } catch {}
+  // Mention detection in reply (@username). Uses displayNameLower prefix search with de-dup (skip if mention notification for same post in last 5m)
+  try {
+    const text = replyText.trim();
+    const mentions = Array.from(new Set((text.match(/@([A-Za-z0-9_]{2,20})/g)||[]).map(m=> m.slice(1).toLowerCase()))).slice(0,5);
+    if(mentions.length){
+      const ref = collection(db,'users');
+      for(const handle of mentions){
+        try {
+          const snap = await getDocs(query(ref, where('displayNameLower','>=', handle), where('displayNameLower','<=', handle + '\uf8ff'), limit(5)));
+          snap.docs.forEach(async d=>{
+            const prof = d.data()||{}; const dn = (prof.displayName||'').toLowerCase();
+            if(dn === handle && d.id !== auth.currentUser?.uid){
+              try {
+                // dedup: look for existing mention notification referencing same postId within last 5 minutes
+                const inboxRef = collection(db,'users',d.id,'inbox');
+                const since = new Date(Date.now() - 5*60*1000);
+                const qref = query(inboxRef, where('type','==','mention'), where('data.postId','==', postId), orderBy('createdAt','desc'), limit(5));
+                const existing = await getDocs(qref);
+                const hasRecent = existing.docs.some(x=>{ const ct = x.data()?.createdAt?.toDate?.(); return ct && ct >= since; });
+                if(!hasRecent){
+                  const prefSnap = await getDoc(doc(db,'users',d.id));
+                  const prefData = prefSnap?.data?.()||{};
+                  if(prefData.notifyMentions !== false){
+                    await inboxAdd({ uid:d.id, type:'mention', title:'You were mentioned', body: text.slice(0,90), data:{ postId } });
+                  }
+                }
+              } catch { await inboxAdd({ uid:d.id, type:'mention', title:'You were mentioned', body: text.slice(0,90), data:{ postId } }); }
+            }
+          });
+        } catch {}
+      }
+    }
+  } catch {}
   // Check server-side rate limit flag
   try { await new Promise(r=> setTimeout(r, 400)); const rs = await getDoc(newReplyRef); if(rs?.exists?.()){ const rd = rs.data()||{}; if(rd.reviewStatus==='rate_limited'){ try { const { DeviceEventEmitter } = await import('react-native'); DeviceEventEmitter.emit('app-toast', { message:'Please wait a few seconds before replying again.', type:'info' }); } catch { /* no-op */ } } } } catch {}
     } catch (e){
@@ -508,12 +560,20 @@ export default function CommunityScreen() {
       return { ...m, [challengeId]: { ...cur, joined:true, minutes:(cur.minutes||0)+mins } };
     });
 
-    // If goal reached, mark completed in participant doc (self-write allowed by rules)
+    // If goal reached or milestones crossed, mark completed / notify
     try {
       const ch = challenges.find(c=> c.id===challengeId);
       const goal = Number(ch?.goalMinutes || ch?.targetMinutes || 0);
       if (goal>0) {
         const after = (joinedMap[challengeId]?.minutes||0) + mins;
+        const before = (joinedMap[challengeId]?.minutes||0);
+        const crossedHalf = before < goal/2 && after >= goal/2;
+        if(crossedHalf){ try {
+          const selfSnap = await getDoc(doc(db,'users',auth.currentUser.uid));
+          if(selfSnap?.data?.()?.notifyMilestones !== false){
+            await inboxAdd({ type:'milestone', title:'Halfway there', body:`${ch?.title||'Challenge'} 50% reached`, data:{ challengeId, percent:50 } });
+          }
+        } catch {} }
         if (after >= goal && !joinedMap[challengeId]?.completed) {
           await setDoc(ref, { completed: true, completedAt: serverTimestamp() }, { merge: true });
           // Feed completion event
@@ -528,6 +588,12 @@ export default function CommunityScreen() {
               await setDoc(doc(db, 'users', auth.currentUser.uid, 'stats', 'aggregate'), { points: increment(pts), lastUpdated: serverTimestamp() }, { merge: true });
             }
             Alert.alert('Congrats!', `${badgeName} awarded${pts>0? ` • +${pts} pts`:''}. Great job!`);
+            try {
+              const selfSnap = await getDoc(doc(db,'users',auth.currentUser.uid));
+              if(selfSnap?.data?.()?.notifyMilestones !== false){
+                await inboxAdd({ type:'milestone', title:'Challenge complete', body:`${ch?.title||'Challenge'} finished!`, data:{ challengeId, percent:100 } });
+              }
+            } catch {}
           } catch {
             Alert.alert('Congrats!', 'Challenge goal reached. Great job!');
           }
@@ -562,6 +628,7 @@ export default function CommunityScreen() {
     if (!safe.ok) {
       return Alert.alert("Blocked", safe.reason || "Your post seems inappropriate.");
     }
+    const bodyText = message.trim();
     const newPostRef = await addDoc(collection(db, "posts"), {
       text: message.trim(),
       createdAt: serverTimestamp(),
@@ -589,6 +656,31 @@ export default function CommunityScreen() {
     setPosts(newList);
     // Hydrate the first page for accurate counts
     try { await hydrateCountsForPosts(newList.slice(0, 10)); } catch {}
+    // Mention detection for post with de-dup (same postId not possible yet, but prevent flood via manual retries)
+    try {
+      const mentions = Array.from(new Set((bodyText.match(/@([A-Za-z0-9_]{2,20})/g)||[]).map(m=> m.slice(1).toLowerCase()))).slice(0,5);
+      if(mentions.length){
+        const ref = collection(db,'users');
+        for(const handle of mentions){
+          try {
+            const snap = await getDocs(query(ref, where('displayNameLower','>=', handle), where('displayNameLower','<=', handle + '\uf8ff'), limit(5)));
+            snap.docs.forEach(async d=>{
+              const prof = d.data()||{}; const dn = (prof.displayName||'').toLowerCase();
+              if(dn === handle && d.id !== auth.currentUser?.uid){
+                try {
+                  const inboxRef = collection(db,'users',d.id,'inbox');
+                  const since = new Date(Date.now() - 5*60*1000);
+                  const qref = query(inboxRef, where('type','==','mention'), where('data.postId','==', newPostRef.id), orderBy('createdAt','desc'), limit(5));
+                  const existing = await getDocs(qref);
+                  const hasRecent = existing.docs.some(x=>{ const ct = x.data()?.createdAt?.toDate?.(); return ct && ct >= since; });
+                  if(!hasRecent){ await inboxAdd({ uid:d.id, type:'mention', title:'You were mentioned', body: bodyText.slice(0,90), data:{ postId: newPostRef.id } }); }
+                } catch { await inboxAdd({ uid:d.id, type:'mention', title:'You were mentioned', body: bodyText.slice(0,90), data:{ postId: newPostRef.id } }); }
+              }
+            });
+          } catch {}
+        }
+      }
+    } catch {}
   };
 
   // Replies modal helpers

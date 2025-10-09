@@ -22,6 +22,7 @@ import LottieView from 'lottie-react-native';
 import { useFocusEffect } from 'expo-router';
 import { nextMinuteThreshold, nextStreakThreshold, progressTowards, loadAdminBadgesIntoCatalog } from '../src/constants/badges';
 import { listAdminBadgesForUser } from '../src/services/admin';
+import { ensureWeeklyDigestSummary } from '../src/services/weeklyDigest';
 // Locale detection without expo-localization
 import { getCachedAggStats, setCachedAggStats } from '../src/utils/statsCache';
 
@@ -146,6 +147,8 @@ export default function HomeScreen() {
 
   useEffect(()=>{ 
     loadData(); 
+    // Weekly digest summary check
+    (async()=>{ try { await ensureWeeklyDigestSummary(); } catch {} })();
     // Merge admin-defined badges into runtime catalog (read-only on user side)
     (async()=>{ 
       try { 

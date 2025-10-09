@@ -1,5 +1,6 @@
 import { db } from "../firebase/firebaseConfig";
 import { doc, setDoc, getDoc, serverTimestamp, increment, collection, getDocs, query, orderBy, limit } from "firebase/firestore";
+import { inboxAdd } from './services/inbox';
 
 export async function updateUserStats(uid, { minutesDelta = 0 } = {}) {
   if (!uid) return;
@@ -17,6 +18,14 @@ export async function awardBadge(uid, badgeId, name) {
   const snap = await getDoc(ref);
   if (snap.exists()) return false; // already awarded
   await setDoc(ref, { name, awardedAt: serverTimestamp() });
+  // Honor user preference for badge notifications
+  try {
+    const profSnap = await getDoc(doc(db,'users',uid));
+    const profData = profSnap?.data?.()||{};
+    if(profData.notifyBadges !== false){
+      await inboxAdd({ uid, type:'badge', title:'Badge earned', body:name || badgeId, data:{ badgeId } });
+    }
+  } catch {}
   return true;
 }
 

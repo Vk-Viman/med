@@ -70,6 +70,8 @@ export default function AdminHome(){
       <PrimaryButton title="Badges" onPress={()=> router.push('/admin/badges')} fullWidth variant='secondary' />
       <View style={{ height: 8 }} />
       <PrimaryButton title="Audit Log" onPress={()=> router.push('/admin/audit')} fullWidth variant='secondary' />
+      <View style={{ height: 8 }} />
+      <PrimaryButton title="Broadcast" onPress={()=> router.push('/admin/broadcast')} fullWidth variant='secondary' />
     </ScrollView>
   );
 }

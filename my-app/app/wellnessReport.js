@@ -15,7 +15,8 @@ import MarkdownPreview from "../src/components/MarkdownPreview";
 import { Dimensions } from "react-native";
 import Card from "../src/components/Card";
 import * as LocalAuthentication from "expo-local-authentication";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
+import { ensureWeeklyDigestSummary } from '../src/services/weeklyDigest';
 
 const BIOMETRIC_PREF_KEY = 'pref_biometric_enabled_v1';
 
@@ -91,6 +92,8 @@ export default function WellnessReport() {
   };
 
   useEffect(() => { if(unlocked){ flushQueue(); loadPage(true); } }, [unlocked]);
+  // Run weekly digest summary check when report gains focus (after unlock)
+  useFocusEffect(React.useCallback(()=>{ if(unlocked){ ensureWeeklyDigestSummary().catch(()=>{}); } }, [unlocked]));
   // Announce on unlock
   useWellnessA11yAnnounce(unlocked, headerRef);
 

@@ -104,6 +104,8 @@ export default function SettingsScreen() {
   // Reminders
   const [dailyTime, setDailyTime] = useState(''); // 'HH:MM' or '' = off
   const [quiet, setQuiet] = useState({ start:'', end:'' });
+  // Notification preferences (default all enabled)
+  const [notifPrefs, setNotifPrefs] = useState({ notifyMentions:true, notifyReplies:true, notifyMilestones:true, notifyBadges:true });
 
   // ===== Key Escrow Handlers =====
   const handleCreateEscrow = async () => {
@@ -154,7 +156,22 @@ export default function SettingsScreen() {
     try{ const v = await AsyncStorage.getItem(AUTO_LOCK_KEY); if(v) setAutoLock(Number(v)); }catch{}
     try{ const b = await AsyncStorage.getItem(BIOMETRIC_PREF_KEY); if(b!==null) setBiometricPref(b==='1'); }catch{}
     // Load profile
-  try { await ensureUserProfile(); const prof = await getUserProfile(); if(prof){ setDisplayName(prof.displayName || ''); if(typeof prof.biometricEnabled === 'boolean') setBiometricPref(prof.biometricEnabled); if(prof.avatarB64) setAvatarB64(prof.avatarB64); if(prof.themeMode==='dark'||prof.themeMode==='light'){ setThemeModeLocal(prof.themeMode); } if(typeof prof.analyticsOptOut === 'boolean') setAnalyticsOptOut(prof.analyticsOptOut); if('termsAcceptedVersion' in prof) setTermsAcceptedVersion(prof.termsAcceptedVersion); if('privacyAcceptedAt' in prof) setPrivacyAcceptedAt(prof.privacyAcceptedAt); } } catch {}
+  try { await ensureUserProfile(); const prof = await getUserProfile(); if(prof){
+    setDisplayName(prof.displayName || '');
+    if(typeof prof.biometricEnabled === 'boolean') setBiometricPref(prof.biometricEnabled);
+    if(prof.avatarB64) setAvatarB64(prof.avatarB64);
+    if(prof.themeMode==='dark'||prof.themeMode==='light'){ setThemeModeLocal(prof.themeMode); }
+    if(typeof prof.analyticsOptOut === 'boolean') setAnalyticsOptOut(prof.analyticsOptOut);
+    if('termsAcceptedVersion' in prof) setTermsAcceptedVersion(prof.termsAcceptedVersion);
+    if('privacyAcceptedAt' in prof) setPrivacyAcceptedAt(prof.privacyAcceptedAt);
+    // Load notification prefs if present (fallback true)
+    setNotifPrefs(p=>({
+      notifyMentions: prof.notifyMentions !== false,
+      notifyReplies: prof.notifyReplies !== false,
+      notifyMilestones: prof.notifyMilestones !== false,
+      notifyBadges: prof.notifyBadges !== false
+    }));
+  } } catch {}
   try { const ts = await AsyncStorage.getItem('last_remote_wipe_ts'); if(ts) setLastRemoteWipe(Number(ts)); } catch {}
   try { const r = await getRetentionDays(); setRetentionDaysState(r||0); } catch {}
   // Load player prefs & reminders
@@ -443,6 +460,12 @@ export default function SettingsScreen() {
     try { await setHapticsEnabled(val); } catch {}
   };
 
+  // ===== Notification Prefs Update =====
+  const updateNotifPref = async (key, val) => {
+    setNotifPrefs(prev => ({ ...prev, [key]: val }));
+    try { await updateUserProfile({ [key]: val }); } catch {}
+  };
+
   // ===== Auto-lock Interval =====
   const changeAutoLock = async (val) => {
     setAutoLock(val);
@@ -627,6 +650,15 @@ export default function SettingsScreen() {
       data: [ { key:'reminders', type:'reminders' } ]
     },
     {
+      title: 'Notification Preferences',
+      data: [
+        { key:'notifyMentions', type:'toggle', label:'Mentions', value: notifPrefs.notifyMentions, onValueChange: v=> updateNotifPref('notifyMentions', v) },
+        { key:'notifyReplies', type:'toggle', label:'Replies', value: notifPrefs.notifyReplies, onValueChange: v=> updateNotifPref('notifyReplies', v) },
+        { key:'notifyMilestones', type:'toggle', label:'Challenge Milestones', value: notifPrefs.notifyMilestones, onValueChange: v=> updateNotifPref('notifyMilestones', v) },
+        { key:'notifyBadges', type:'toggle', label:'Badges Earned', value: notifPrefs.notifyBadges, onValueChange: v=> updateNotifPref('notifyBadges', v) }
+      ]
+    },
+    {
       title: 'Privacy & Data',
       data: [
         { key:'localOnly', type:'toggle', label:'Local-Only Mode', value: localOnly, onValueChange: toggleLocalOnly },
@@ -726,7 +758,16 @@ export default function SettingsScreen() {
             <Text style={styles.label}>Weekly digest</Text>
             <View style={styles.inlineOptions}>
               {['On','Off'].map(opt => (
-                <TouchableOpacity key={opt} onPress={()=> { if(opt==='On'){ toggleWeeklyDigest(); if(!weeklyDigestEnabled) toggleWeeklyDigest(); } else { if(weeklyDigestEnabled) toggleWeeklyDigest(); } }} style={[styles.intervalChip, ((weeklyDigestEnabled && opt==='On') || (!weeklyDigestEnabled && opt==='Off')) && styles.intervalChipActive]} accessibilityRole='button' accessibilityState={{ selected: (weeklyDigestEnabled && opt==='On') || (!weeklyDigestEnabled && opt==='Off') }} accessibilityLabel={`Weekly digest ${opt}`}>
+                <TouchableOpacity key={opt} onPress={async ()=> {
+                  if(opt==='On' && !weeklyDigestEnabled){
+                    await toggleWeeklyDigest();
+                    // Re-schedule weekly digest and add immediate inbox summary placeholder
+                    try { const { scheduleWeeklyDigestReminder } = await import('../src/notifications'); await scheduleWeeklyDigestReminder(); } catch {}
+                    try { const { inboxAdd } = await import('../src/services/inbox'); await inboxAdd({ type:'digest', title:'Weekly digest enabled', body:'You will receive a summary every Sunday at 6pm.' }); } catch {}
+                  } else if(opt==='Off' && weeklyDigestEnabled) {
+                    await toggleWeeklyDigest();
+                  }
+                }} style={[styles.intervalChip, ((weeklyDigestEnabled && opt==='On') || (!weeklyDigestEnabled && opt==='Off')) && styles.intervalChipActive]} accessibilityRole='button' accessibilityState={{ selected: (weeklyDigestEnabled && opt==='On') || (!weeklyDigestEnabled && opt==='Off') }} accessibilityLabel={`Weekly digest ${opt}`}>
                   <Text style={[styles.intervalChipText, ((weeklyDigestEnabled && opt==='On') || (!weeklyDigestEnabled && opt==='Off')) && styles.intervalChipTextActive]}>{opt}</Text>
                 </TouchableOpacity>
               ))}
