@@ -11,6 +11,9 @@ import { safeSnapshot } from "../src/utils/safeSnapshot";
 import * as LocalAuthentication from "expo-local-authentication";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import GradientCard from "../src/components/GradientCard";
+import ProgressRing from "../src/components/ProgressRing";
 
 const BIOMETRIC_PREF_KEY = 'pref_biometric_enabled_v1';
 
@@ -191,7 +194,17 @@ export default function WeeklyReportScreen() {
     <GradientBackground>
     <ScrollView style={{ flex:1 }} contentContainerStyle={styles.container}>
   <View ref={shareViewRef} collapsable={false} style={[styles.shareCapture, { backgroundColor: theme.card }]}>
-  <Text ref={titleRef} style={styles.title} accessibilityRole='header' accessibilityLabel='Weekly Report'>Weekly Report</Text>
+  
+  {/* Professional Header */}
+  <View style={styles.header}>
+    <View style={styles.iconBadge}>
+      <Ionicons name="bar-chart" size={28} color="#AB47BC" />
+    </View>
+    <View style={{ flex: 1, marginLeft: 16 }}>
+      <Text ref={titleRef} style={styles.title} accessibilityRole='header' accessibilityLabel='Weekly Report'>Weekly Report</Text>
+      <Text style={styles.subtitle}>Your meditation insights</Text>
+    </View>
+  </View>
         <Card>
           <LineChart
             data={{ labels: dateLabels, datasets: [{ data: minutesByDay }] }}
@@ -210,12 +223,35 @@ export default function WeeklyReportScreen() {
             style={{ borderRadius: 12 }}
           />
         </Card>
-        <Text style={styles.total}>Total minutes: {currentTotal.toFixed(1)}</Text>
-        <View style={styles.row}>
-          <Text style={styles.kpi}>Active days: {activeDays}/7</Text>
-          <Text style={[styles.kpi, trendDelta>=0?styles.up:styles.down]}>WoW: {trendLabel}</Text>
-          <Text style={styles.kpi}>Streak: {streakDays} day{streakDays===1?'':'s'}</Text>
-        </View>
+        
+        {/* Stats Card with Progress Ring */}
+        <GradientCard colors={['#AB47BC', '#8E24AA', '#6A1B9A']} style={{ marginTop: 16 }}>
+          <View style={{ alignItems: 'center' }}>
+            <ProgressRing
+              size={100}
+              progress={Math.min(100, (currentTotal / 140) * 100)}
+              strokeWidth={10}
+              color="#FFFFFF"
+              backgroundColor="rgba(255,255,255,0.3)"
+            />
+            <Text style={styles.statsValue}>{currentTotal.toFixed(1)}</Text>
+            <Text style={styles.statsLabel}>Total Minutes</Text>
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{activeDays}</Text>
+                <Text style={styles.statLabel}>Active Days</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, trendDelta>=0?{color:'#66BB6A'}:{color:'#EF5350'}]}>{trendLabel}</Text>
+                <Text style={styles.statLabel}>WoW Change</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{streakDays}</Text>
+                <Text style={styles.statLabel}>Streak Days</Text>
+              </View>
+            </View>
+          </View>
+        </GradientCard>
 
         {/* Insights */}
         <Card>
@@ -321,7 +357,82 @@ function buildReportHtml({ dateLabels, minutesByDay, currentTotal, prevWeekTotal
 const styles = StyleSheet.create({
   container: { padding: 12, paddingBottom: 24 },
   shareCapture: { borderRadius: 12, paddingBottom: 12 },
-  title: { fontSize: 22, fontWeight: "bold", color: "#0288D1", marginBottom: 8 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    marginBottom: 16,
+    shadowColor: '#AB47BC',
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  iconBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: '#F3E5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#AB47BC',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  title: { 
+    fontSize: 28, 
+    fontWeight: "800", 
+    color: "#0288D1", 
+    letterSpacing: 0.5 
+  },
+  subtitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#546E7A',
+    marginTop: 2,
+  },
+  statsValue: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#fff',
+    marginTop: 12,
+  },
+  statsLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+    opacity: 0.9,
+    marginTop: 4,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+    marginTop: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.3)',
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  statLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#fff',
+    opacity: 0.8,
+    marginTop: 4,
+  },
   total: { marginTop: 12, fontWeight: "600", color: "#01579B" },
   hint: { marginTop: 8, color: "#607D8B" },
   row: { flexDirection: 'row', gap: 16, marginTop: 8, flexWrap: 'wrap' },

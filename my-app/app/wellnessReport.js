@@ -17,6 +17,9 @@ import Card from "../src/components/Card";
 import * as LocalAuthentication from "expo-local-authentication";
 import { useRouter, useFocusEffect } from "expo-router";
 import { ensureWeeklyDigestSummary } from '../src/services/weeklyDigest';
+import { Ionicons } from "@expo/vector-icons";
+import GradientCard from "../src/components/GradientCard";
+import ProgressRing from "../src/components/ProgressRing";
 
 const BIOMETRIC_PREF_KEY = 'pref_biometric_enabled_v1';
 
@@ -314,7 +317,17 @@ export default function WellnessReport() {
 
   const ListHeader = () => (
     <View>
-      <Text ref={headerRef} style={styles.heading} accessibilityRole='header' accessibilityLabel='Wellness Report'>Wellness Report</Text>
+      {/* Professional Header */}
+      <View style={styles.header}>
+        <View style={styles.iconBadge}>
+          <Ionicons name="heart" size={28} color="#EC407A" />
+        </View>
+        <View style={{ flex: 1, marginLeft: 16 }}>
+          <Text ref={headerRef} style={styles.heading} accessibilityRole='header' accessibilityLabel='Wellness Report'>Wellness Report</Text>
+          <Text style={styles.subtitle}>Your mental health insights</Text>
+        </View>
+      </View>
+      
       <View style={styles.timeframeRow}>
         {[7,30,90].map(d => (
           <TouchableOpacity
@@ -368,6 +381,27 @@ export default function WellnessReport() {
           </TouchableOpacity>
         </View>
       )}
+      
+      {/* Health Metric Card */}
+      {tfEntries.length > 0 && (
+        <GradientCard colors={['#EC407A', '#D81B60', '#AD1457']} style={{ marginTop: 16 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <ProgressRing
+              size={90}
+              progress={Math.max(0, 100 - (avgStress / 10) * 100)}
+              strokeWidth={10}
+              color="#FFFFFF"
+              backgroundColor="rgba(255,255,255,0.3)"
+            />
+            <View style={{ marginLeft: 16, flex: 1 }}>
+              <Text style={styles.healthMetricValue}>{(10 - avgStress).toFixed(1)}</Text>
+              <Text style={styles.healthMetricLabel}>Wellness Score</Text>
+              <Text style={styles.healthMetricSubtext}>Based on {tfEntries.length} entries</Text>
+            </View>
+          </View>
+        </GradientCard>
+      )}
+      
       {tfEntries.length > 0 ? (
         <Card>
           {/* Chart interaction toggle: keep charts non-interactive for smooth scroll by default */}
@@ -743,7 +777,64 @@ export function useWellnessA11yAnnounce(unlocked, ref) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, backgroundColor: '#F5F5F5' },
-  heading: { fontSize: 28, fontWeight: "800", color: "#01579B", marginBottom: 16, letterSpacing: 0.3 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    marginBottom: 16,
+    shadowColor: '#EC407A',
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  iconBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: '#FCE4EC',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#EC407A',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  heading: { 
+    fontSize: 28, 
+    fontWeight: "800", 
+    color: "#01579B", 
+    letterSpacing: 0.5 
+  },
+  subtitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#546E7A',
+    marginTop: 2,
+  },
+  healthMetricValue: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#fff',
+  },
+  healthMetricLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+    opacity: 0.9,
+    marginTop: 4,
+  },
+  healthMetricSubtext: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#fff',
+    opacity: 0.8,
+    marginTop: 2,
+  },
   subheading: { fontSize: 20, fontWeight: "700", color: "#0277BD", marginBottom: 12, letterSpacing: 0.2 },
   label: { fontSize: 17, color: "#0277BD", marginBottom: 14, fontWeight: '600' },
   entry: { backgroundColor: "#fff", borderRadius: 14, padding: 16, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, elevation: 2, borderWidth: 1, borderColor: '#E3F2FD' },
