@@ -134,3 +134,15 @@ export async function scheduleWeeklyDigestReminder(){
     return true;
   } catch { return false; }
 }
+
+// Cancel previously scheduled weekly digest notifications (idempotent)
+export async function cancelWeeklyDigestReminder(){
+  try {
+    if (await isAndroidExpoGo()) return false;
+    const Notifications = await import('expo-notifications');
+    const all = await Notifications.getAllScheduledNotificationsAsync();
+    const targets = all.filter(n => (n?.content?.title === 'Weekly Summary Ready'));
+    for(const n of targets){ try { await Notifications.cancelScheduledNotificationAsync(n.identifier); } catch {} }
+    return true;
+  } catch { return false; }
+}

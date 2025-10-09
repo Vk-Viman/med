@@ -57,6 +57,14 @@ export async function ensureWeeklyDigestSummary(){
     const title = 'Weekly Summary';
     const body = `Last week: ${minutes} min • Streak change ${streakDelta>=0? '+':''}${streakDelta}`;
     await inboxAdd({ type:'digest_summary', title, body, data:{ route:'/wellnessReport', weekStart: lastWeekStart.toISOString().slice(0,10) } });
+    // Also create a lightweight 'digest' notification to nudge user (separate from summary data) if preference enabled
+    try {
+      const profSnap = await getDoc(doc(db,'users',uid));
+      const profData = profSnap?.data?.()||{};
+      if(profData.weeklyDigestEnabled !== false){
+        await inboxAdd({ type:'digest', title:'Your weekly digest is ready', body:'Tap to view your progress report', data:{ route:'/wellnessReport' } });
+      }
+    } catch {}
     return true;
   } catch { return false; }
 }

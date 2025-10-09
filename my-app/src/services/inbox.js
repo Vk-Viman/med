@@ -39,7 +39,13 @@ export async function inboxAdd({ uid, type, title, body, data }){
       }
     } catch {}
     return { ok:true };
-  } catch(e){ return { ok:false, error: e?.message||String(e) }; }
+  } catch(e){
+    try {
+      const { DeviceEventEmitter } = await import('react-native');
+      DeviceEventEmitter.emit('app-toast', { message: 'Notification failed: ' + (e?.message||'error'), type:'error' });
+    } catch {}
+    return { ok:false, error: e?.message||String(e) };
+  }
 }
 
 export async function inboxList({ limitCount = 30 } = {}){

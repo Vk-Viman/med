@@ -104,6 +104,9 @@ export default function SettingsScreen() {
   // Reminders
   const [dailyTime, setDailyTime] = useState(''); // 'HH:MM' or '' = off
   const [quiet, setQuiet] = useState({ start:'', end:'' });
+  // Weekly digest preference (local + profile flag)
+  const [weeklyDigestEnabled, setWeeklyDigestEnabled] = useState(true);
+  const [weeklyDigestLoading, setWeeklyDigestLoading] = useState(false);
   // Notification preferences (default all enabled)
   const [notifPrefs, setNotifPrefs] = useState({ notifyMentions:true, notifyReplies:true, notifyMilestones:true, notifyBadges:true });
 
@@ -164,6 +167,13 @@ export default function SettingsScreen() {
     if(typeof prof.analyticsOptOut === 'boolean') setAnalyticsOptOut(prof.analyticsOptOut);
     if('termsAcceptedVersion' in prof) setTermsAcceptedVersion(prof.termsAcceptedVersion);
     if('privacyAcceptedAt' in prof) setPrivacyAcceptedAt(prof.privacyAcceptedAt);
+    if(typeof prof.weeklyDigestEnabled === 'boolean') {
+      setWeeklyDigestEnabled(prof.weeklyDigestEnabled);
+    } else {
+      // Persist default true only once to profile
+      try { await updateUserProfile({ weeklyDigestEnabled: true }); } catch {}
+      setWeeklyDigestEnabled(true);
+    }
     // Load notification prefs if present (fallback true)
     setNotifPrefs(p=>({
       notifyMentions: prof.notifyMentions !== false,
@@ -458,6 +468,27 @@ export default function SettingsScreen() {
   const toggleHaptics = async (val) => {
     setHapticsEnabledState(val);
     try { await setHapticsEnabled(val); } catch {}
+  };
+
+  // Weekly digest toggle
+  let weeklyDigestToggleTimer = null;
+  const toggleWeeklyDigest = async () => {
+    if(weeklyDigestLoading) return; // debounce rapid taps
+    const next = !weeklyDigestEnabled;
+    setWeeklyDigestEnabled(next);
+    setWeeklyDigestLoading(true);
+    try {
+      await updateUserProfile({ weeklyDigestEnabled: next });
+      if(next){
+        try { const { scheduleWeeklyDigestReminder } = await import('../src/notifications'); await scheduleWeeklyDigestReminder(); } catch {}
+      } else {
+        try { const { cancelWeeklyDigestReminder } = await import('../src/notifications'); await cancelWeeklyDigestReminder(); } catch {}
+      }
+    } finally {
+      // slight delay to avoid flicker / double-fire
+      weeklyDigestToggleTimer && clearTimeout(weeklyDigestToggleTimer);
+      weeklyDigestToggleTimer = setTimeout(()=> setWeeklyDigestLoading(false), 400);
+    }
   };
 
   // ===== Notification Prefs Update =====
@@ -757,20 +788,22 @@ export default function SettingsScreen() {
           <View style={[styles.rowBetweenMul, { marginTop:8 }]}>
             <Text style={styles.label}>Weekly digest</Text>
             <View style={styles.inlineOptions}>
-              {['On','Off'].map(opt => (
-                <TouchableOpacity key={opt} onPress={async ()=> {
-                  if(opt==='On' && !weeklyDigestEnabled){
-                    await toggleWeeklyDigest();
-                    // Re-schedule weekly digest and add immediate inbox summary placeholder
-                    try { const { scheduleWeeklyDigestReminder } = await import('../src/notifications'); await scheduleWeeklyDigestReminder(); } catch {}
-                    try { const { inboxAdd } = await import('../src/services/inbox'); await inboxAdd({ type:'digest', title:'Weekly digest enabled', body:'You will receive a summary every Sunday at 6pm.' }); } catch {}
-                  } else if(opt==='Off' && weeklyDigestEnabled) {
-                    await toggleWeeklyDigest();
-                  }
-                }} style={[styles.intervalChip, ((weeklyDigestEnabled && opt==='On') || (!weeklyDigestEnabled && opt==='Off')) && styles.intervalChipActive]} accessibilityRole='button' accessibilityState={{ selected: (weeklyDigestEnabled && opt==='On') || (!weeklyDigestEnabled && opt==='Off') }} accessibilityLabel={`Weekly digest ${opt}`}>
-                  <Text style={[styles.intervalChipText, ((weeklyDigestEnabled && opt==='On') || (!weeklyDigestEnabled && opt==='Off')) && styles.intervalChipTextActive]}>{opt}</Text>
-                </TouchableOpacity>
-              ))}
+              {['On','Off'].map(opt => {
+                const selected = (weeklyDigestEnabled && opt==='On') || (!weeklyDigestEnabled && opt==='Off');
+                return (
+                  <TouchableOpacity key={opt} disabled={weeklyDigestLoading} onPress={async ()=> {
+                    if(weeklyDigestLoading) return;
+                    if(opt==='On' && !weeklyDigestEnabled){
+                      await toggleWeeklyDigest();
+                      try { const { inboxAdd } = await import('../src/services/inbox'); await inboxAdd({ type:'digest', title:'Weekly digest enabled', body:'You will receive a summary every Sunday at 6pm.' }); } catch {}
+                    } else if(opt==='Off' && weeklyDigestEnabled) {
+                      await toggleWeeklyDigest();
+                    }
+                  }} style={[styles.intervalChip, selected && styles.intervalChipActive, weeklyDigestLoading && { opacity:0.6 }]} accessibilityRole='button' accessibilityState={{ selected, disabled: weeklyDigestLoading }} accessibilityLabel={`Weekly digest ${opt}`}>
+                    <Text style={[styles.intervalChipText, selected && styles.intervalChipTextActive]}>{opt}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </View>
           <Text style={styles.noteText}>Reminders respect your device focus settings. Quiet hours are stored for future goal nudges.</Text>

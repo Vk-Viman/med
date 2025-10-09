@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { View, Text, StyleSheet, FlatList, TextInput, Button, Alert, ScrollView, TouchableOpacity, Modal, Pressable, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { db, auth } from "../../firebase/firebaseConfig";
@@ -567,7 +567,22 @@ export default function CommunityScreen() {
       if (goal>0) {
         const after = (joinedMap[challengeId]?.minutes||0) + mins;
         const before = (joinedMap[challengeId]?.minutes||0);
-        const crossedHalf = before < goal/2 && after >= goal/2;
+        // New milestone thresholds 25%, 50%, 75%
+        const thresholds = [0.25, 0.5, 0.75];
+        for(const t of thresholds){
+          const pct = t*100;
+          const crossed = before < goal * t && after >= goal * t;
+          if(crossed){
+            try {
+              const selfSnap = await getDoc(doc(db,'users',auth.currentUser.uid));
+              if(selfSnap?.data?.()?.notifyMilestones !== false){
+                const label = pct===25? 'Quarter way' : pct===50? 'Halfway there' : 'Almost there';
+                await inboxAdd({ type:'milestone', title:label, body:`${ch?.title||'Challenge'} ${pct}% reached`, data:{ challengeId, percent:pct } });
+              }
+            } catch {}
+          }
+        }
+        const crossedHalf = false; // handled above
         if(crossedHalf){ try {
           const selfSnap = await getDoc(doc(db,'users',auth.currentUser.uid));
           if(selfSnap?.data?.()?.notifyMilestones !== false){
@@ -708,6 +723,113 @@ export default function CommunityScreen() {
     }
   };
 
+  // ===== Memoized render items for FlatLists =====
+  const renderChallenge = useCallback(({ item }) => (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>{item.title}</Text>
+      <Text style={styles.cardText}>{item.description}</Text>
+      <Text style={styles.meta}>
+        {item.startAt ? fmtDate(item.startAt) : '—'}
+        {item.endAt ? ` → ${fmtDate(item.endAt)}` : ''}
+        {item.goalMinutes || item.targetMinutes ? `  • Goal ${(item.goalMinutes||item.targetMinutes)}m` : ''}
+      </Text>
+      {item.teamEnabled && (
+        <View style={styles.flag}><Text style={styles.flagTxt}>Teams enabled</Text></View>
+      )}
+      <View style={styles.progressBar} accessibilityLabel={`Progress ${progressMap[item.id]||0}%`}>
+        <View style={[styles.progressFill,{ width: `${progressMap[item.id]||0}%` }]} />
+      </View>
+      {joinedMap[item.id]?.joined ? (
+        <Text style={styles.joinedTxt}>
+          {joinedMap[item.id]?.completed ? 'Completed! ' : 'Joined • '}
+          {joinedMap[item.id]?.rank ? `Rank #${joinedMap[item.id].rank} of ${joinedMap[item.id].total||'—'}` : 'Tracking...'} • {joinedMap[item.id]?.minutes||0}m
+        </Text>
+      ) : (
+        <Text style={styles.joinedTxt}>Not joined</Text>
+      )}
+      <View style={{ height: 6 }} />
+      <Button title={joinedMap[item.id]?.joined? "Joined" : "Join"} onPress={() => joinChallenge(item.id)} disabled={joinedMap[item.id]?.joined} />
+      <View style={{ height: 6 }} />
+      <Button title="+10 min" onPress={() => addMeditationMinutes(item.id, 10)} disabled={!joinedMap[item.id]?.joined} />
+      {Array.isArray(teamsMap[item.id]) && teamsMap[item.id].length>0 && (
+        <View style={{ marginTop: 8 }}>
+          <Text style={styles.section}>Top Teams</Text>
+          {teamsMap[item.id].map((t, idx)=> (
+            <View key={t.id} style={styles.teamItem}><Text style={styles.teamTxt}>{idx+1}. {t.name} • {t.minutes}m</Text></View>
+          ))}
+          {joinedMap[item.id]?.joined && (
+            <View style={{ marginTop:8 }}>
+              <Text style={styles.section}>Your Team</Text>
+              <View style={{ flexDirection:'row', flexWrap:'wrap', gap:6 }}>
+                {teamsMap[item.id].map(t => (
+                  <Button key={t.id} title={userTeamMap[item.id]===t.id? `✓ ${t.name}` : t.name} onPress={async ()=>{
+                    try {
+                      const pref = doc(db, 'challenges', item.id, 'participants', auth.currentUser.uid);
+                      await setDoc(pref, { teamId: t.id }, { merge: true });
+                      setUserTeamMap(m=> ({ ...m, [item.id]: t.id }));
+                    } catch {}
+                  }} />
+                ))}
+              </View>
+            </View>
+          )}
+        </View>
+      )}
+      {Array.isArray(feedMap[item.id]) && feedMap[item.id].length>0 && (
+        <View style={{ marginTop: 8 }}>
+          <Text style={styles.section}>Updates</Text>
+          {feedMap[item.id].map((f)=> (
+            <View key={f.id} style={styles.feedItem}>
+              <Text style={styles.feedTxt}>{f.text || f.title || 'Update'}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  ), [progressMap, joinedMap, teamsMap, userTeamMap, feedMap]);
+
+  const PostItem = useCallback(({ item }) => (
+    <View style={styles.post}>
+      <View style={{ flexDirection:'row', justifyContent:'space-between' }}>
+        <Text style={styles.anon}>{item.anonId || "anon"}</Text>
+        <Text style={styles.time}>{item.createdAt?.toDate ? item.createdAt.toDate().toLocaleString() : ''}</Text>
+      </View>
+      {item.hidden ? (
+        <Text style={{ color: '#f57c00', marginTop:4, fontStyle:'italic' }}>Hidden pending review</Text>
+      ) : (
+        <Text style={{ color: theme.text, marginTop:4 }}>{item.text}</Text>
+      )}
+      <View style={{ flexDirection:'row', alignItems:'center', gap:10, marginTop:8 }}>
+        <Button title={`❤️ ${item.likesCount||0}`} onPress={()=> toggleLike(item)} />
+        <Button title={`Replies ${item.repliesCount||0}`} onPress={()=> openRepliesModal(item)} />
+        <Button title={replyTarget===item.id ? 'Cancel' : 'Reply'} onPress={()=> setReplyTarget(prev => prev===item.id ? null : item.id)} />
+        <Button title="Report" color="#c62828" onPress={()=> reportPost(item)} />
+        <Button title="Mute" onPress={()=> muteAnon(item.anonId)} />
+      </View>
+      {replyTarget === item.id && (
+        <View style={{ marginTop:8 }}>
+          <TextInput style={styles.input} placeholder="Write a reply…" placeholderTextColor={theme.textMuted} value={replyText} onChangeText={setReplyText} />
+          <View style={{ height:6 }} />
+          <Button title="Send" onPress={()=> addReply(item.id)} />
+        </View>
+      )}
+    </View>
+  ), [replyTarget, replyText, theme.text, theme.textMuted, toggleLike]);
+
+  const renderBadge = useCallback(({ item }) => (
+    <TouchableOpacity onPress={()=> setBadgeModal(item)}>
+      <View style={styles.badge}><Text style={{ color: theme.text }}>{badgeEmoji(item.id)} {item.name || item.id}</Text></View>
+    </TouchableOpacity>
+  ), [theme.text]);
+
+  const renderLeaderboard = useCallback(({ item, index }) => (
+    <View style={styles.badge}><Text style={{ color: theme.text }}>{index+1}. {item.uid.slice(0,6)} • {item.minutes}m</Text></View>
+  ), [theme.text]);
+
+  const keyExtractorPost = useCallback((item)=> item.id, []);
+  const keyExtractorUid = useCallback((item)=> item.uid, []);
+  const keyExtractorBadge = useCallback((item)=> item.id, []);
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
@@ -744,81 +866,23 @@ export default function CommunityScreen() {
         data={challenges}
         keyExtractor={(item) => item.id}
         horizontal
-        renderItem={({ item }) => (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>{item.title}</Text>
-            <Text style={styles.cardText}>{item.description}</Text>
-            <Text style={styles.meta}>
-              {item.startAt ? fmtDate(item.startAt) : '—'}
-              {item.endAt ? ` → ${fmtDate(item.endAt)}` : ''}
-              {item.goalMinutes || item.targetMinutes ? `  • Goal ${(item.goalMinutes||item.targetMinutes)}m` : ''}
-            </Text>
-            {item.teamEnabled && (
-              <View style={styles.flag}><Text style={styles.flagTxt}>Teams enabled</Text></View>
-            )}
-            <View style={styles.progressBar} accessibilityLabel={`Progress ${progressMap[item.id]||0}%`}>
-              <View style={[styles.progressFill,{ width: `${progressMap[item.id]||0}%` }]} />
-            </View>
-            {joinedMap[item.id]?.joined ? (
-              <Text style={styles.joinedTxt}>
-                {joinedMap[item.id]?.completed ? 'Completed! ' : 'Joined • '}
-                {joinedMap[item.id]?.rank ? `Rank #${joinedMap[item.id].rank} of ${joinedMap[item.id].total||'—'}` : 'Tracking...'} • {joinedMap[item.id]?.minutes||0}m
-              </Text>
-            ) : (
-              <Text style={styles.joinedTxt}>Not joined</Text>
-            )}
-            <View style={{ height: 6 }} />
-            <Button title={joinedMap[item.id]?.joined? "Joined" : "Join"} onPress={() => joinChallenge(item.id)} disabled={joinedMap[item.id]?.joined} />
-            <View style={{ height: 6 }} />
-            <Button title="+10 min" onPress={() => addMeditationMinutes(item.id, 10)} disabled={!joinedMap[item.id]?.joined} />
-            {Array.isArray(teamsMap[item.id]) && teamsMap[item.id].length>0 && (
-              <View style={{ marginTop: 8 }}>
-                <Text style={styles.section}>Top Teams</Text>
-                {teamsMap[item.id].map((t, idx)=> (
-                  <View key={t.id} style={styles.teamItem}><Text style={styles.teamTxt}>{idx+1}. {t.name} • {t.minutes}m</Text></View>
-                ))}
-                {joinedMap[item.id]?.joined && (
-                  <View style={{ marginTop:8 }}>
-                    <Text style={styles.section}>Your Team</Text>
-                    <View style={{ flexDirection:'row', flexWrap:'wrap', gap:6 }}>
-                      {teamsMap[item.id].map(t => (
-                        <Button key={t.id} title={userTeamMap[item.id]===t.id? `✓ ${t.name}` : t.name} onPress={async ()=>{
-                          try {
-                            const pref = doc(db, 'challenges', item.id, 'participants', auth.currentUser.uid);
-                            await setDoc(pref, { teamId: t.id }, { merge: true });
-                            setUserTeamMap(m=> ({ ...m, [item.id]: t.id }));
-                          } catch {}
-                        }} />
-                      ))}
-                    </View>
-                  </View>
-                )}
-              </View>
-            )}
-            {Array.isArray(feedMap[item.id]) && feedMap[item.id].length>0 && (
-              <View style={{ marginTop: 8 }}>
-                <Text style={styles.section}>Updates</Text>
-                {feedMap[item.id].map((f)=> (
-                  <View key={f.id} style={styles.feedItem}>
-                    <Text style={styles.feedTxt}>{f.text || f.title || 'Update'}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-          </View>
-        )}
+        initialNumToRender={3}
+        windowSize={5}
+        maxToRenderPerBatch={5}
+        removeClippedSubviews
+        renderItem={renderChallenge}
       />
 
       <Text style={styles.section}>Your Badges</Text>
       <FlatList
         data={badges}
-        keyExtractor={(item) => item.id}
+        keyExtractor={keyExtractorBadge}
         horizontal
-        renderItem={({ item }) => (
-          <TouchableOpacity onPress={()=> setBadgeModal(item)}>
-            <View style={styles.badge}><Text style={{ color: theme.text }}>{badgeEmoji(item.id)} {item.name || item.id}</Text></View>
-          </TouchableOpacity>
-        )}
+        initialNumToRender={8}
+        windowSize={5}
+        maxToRenderPerBatch={10}
+        removeClippedSubviews
+        renderItem={renderBadge}
       />
 
       {/* Progress-to-next chips to mirror Home motivation */}
@@ -861,22 +925,24 @@ export default function CommunityScreen() {
       </View>
       <FlatList
         data={leaderboard}
-        keyExtractor={(item) => item.uid}
+        keyExtractor={keyExtractorUid}
         horizontal
-        renderItem={({ item, index }) => (
-          <View style={styles.badge}><Text style={{ color: theme.text }}>{index+1}. {item.uid.slice(0,6)} • {item.minutes}m</Text></View>
-        )}
+        renderItem={renderLeaderboard}
+        initialNumToRender={5}
+        windowSize={3}
+        removeClippedSubviews
       />
       {globalLeaderboard.length>0 && (
         <>
           <Text style={[styles.section,{ marginTop:12 }]}>Global (All Challenges)</Text>
           <FlatList
             data={globalLeaderboard}
-            keyExtractor={(item)=> item.uid }
+            keyExtractor={keyExtractorUid}
             horizontal
-            renderItem={({ item, index }) => (
-              <View style={styles.badge}><Text style={{ color: theme.text }}>{index+1}. {item.uid.slice(0,6)} • {item.minutes}m</Text></View>
-            )}
+            renderItem={renderLeaderboard}
+            initialNumToRender={5}
+            windowSize={3}
+            removeClippedSubviews
           />
         </>
       )}
@@ -892,33 +958,16 @@ export default function CommunityScreen() {
         ) : posts.length === 0 ? (
           <Text style={{ color: theme.textMuted }}>No posts yet. Be the first!</Text>
         ) : (
-          posts.map((item) => (
-            <View key={item.id} style={styles.post}>
-              <View style={{ flexDirection:'row', justifyContent:'space-between' }}>
-                <Text style={styles.anon}>{item.anonId || "anon"}</Text>
-                <Text style={styles.time}>{item.createdAt?.toDate ? item.createdAt.toDate().toLocaleString() : ''}</Text>
-              </View>
-              {item.hidden ? (
-                <Text style={{ color: '#f57c00', marginTop:4, fontStyle:'italic' }}>Hidden pending review</Text>
-              ) : (
-                <Text style={{ color: theme.text, marginTop:4 }}>{item.text}</Text>
-              )}
-              <View style={{ flexDirection:'row', alignItems:'center', gap:10, marginTop:8 }}>
-                <Button title={`❤️ ${item.likesCount||0}`} onPress={()=> toggleLike(item)} />
-                <Button title={`Replies ${item.repliesCount||0}`} onPress={()=> openRepliesModal(item)} />
-                <Button title={replyTarget===item.id ? 'Cancel' : 'Reply'} onPress={()=> setReplyTarget(prev => prev===item.id ? null : item.id)} />
-                <Button title="Report" color="#c62828" onPress={()=> reportPost(item)} />
-                <Button title="Mute" onPress={()=> muteAnon(item.anonId)} />
-              </View>
-              {replyTarget === item.id && (
-                <View style={{ marginTop:8 }}>
-                  <TextInput style={styles.input} placeholder="Write a reply…" placeholderTextColor={theme.textMuted} value={replyText} onChangeText={setReplyText} />
-                  <View style={{ height:6 }} />
-                  <Button title="Send" onPress={()=> addReply(item.id)} />
-                </View>
-              )}
-            </View>
-          ))
+          <FlatList
+            data={posts}
+            keyExtractor={keyExtractorPost}
+            renderItem={PostItem}
+            initialNumToRender={6}
+            windowSize={7}
+            maxToRenderPerBatch={8}
+            removeClippedSubviews
+            scrollEnabled={false}
+          />
         )}
         {/* Bottom loader for auto infinite scroll */}
         {hasMore && loadingMore && (

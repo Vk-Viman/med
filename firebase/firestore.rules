@@ -2,21 +2,39 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helpers
+    // ===== Helpers =====
     function isSignedIn() { return request.auth != null; }
+    function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
     function isAdmin() {
-      // Users are admins if users/{uid}.userType denotes admin. Allow a tolerant check for accidental trailing space.
+      // Accept either userType field on user doc OR custom auth claims (roles / admin flag)
       return isSignedIn() && (
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.userType == 'admin' ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.userType == 'admin '
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.userType == 'admin ' ||
+        (request.auth.token.roles is list && request.auth.token.roles.hasAny(['admin','moderator'])) ||
+        request.auth.token.admin == true || request.auth.token.moderator == true
       );
+    }
+    function validPost(data) {
+      return data.keys().hasAll(['text','createdAt']) &&
+             data.text is string && data.text.size() > 0 && data.text.size() <= 1000 &&
+             data.createdAt is timestamp;
+    }
+    function validReply(data) {
+      return data.keys().hasAll(['text','createdAt']) &&
+             data.text is string && data.text.size() > 0 && data.text.size() <= 1000 &&
+             data.createdAt is timestamp;
+    }
+    // Basic push token validation (best-effort; FCM tokens are typically long strings)
+    function validPushToken(data) {
+      return data.keys().hasAll(['token']) &&
+             data.token is string && data.token.size() >= 20 && data.token.size() <= 500;
     }
 
     // ===================== Posts & Anonymous Board =====================
     match /posts/{postId} {
       allow read: if true;
-      // Signed-in users can create posts; only admins can update/delete (e.g., hide/unhide, remove)
-      allow create: if isSignedIn();
+      // Create requires basic field & length validation to prevent abuse
+      allow create: if isSignedIn() && validPost(request.resource.data);
       allow update, delete: if isAdmin();
 
       // Likes subcollection: user can like/unlike their own doc
@@ -29,25 +47,32 @@ service cloud.firestore {
       // Replies subcollection: any signed-in user can reply (admin can moderate server-side)
       match /replies/{replyId} {
         allow read: if true;
-        allow create: if isSignedIn();
+        // Validate reply body
+        allow create: if isSignedIn() && validReply(request.resource.data);
         allow update, delete: if false;
       }
     }
 
     // ===================== Users & Owner Data =====================
     match /users/{uid} {
-      // Read own profile; admins can read any
-      allow read: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
-      // Create own user doc on first sign-in; admins also allowed
-      allow create: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
-      // Update own doc but cannot change userType; admins can update anything
+      // PUBLIC PROFILE READS:
+      // Allow any signed-in user to read profile documents to support @mentions, badge lookups, notification preference gating.
+      // Sensitive / private data MUST live in /users/{uid}/private/* (see rule below) or another secured subcollection.
+      // To revert to strict privacy later, change this to: allow read: if isOwner(uid) || isAdmin();
+      allow read: if isSignedIn() || isAdmin();
+
+      // Creation: user creates only their own doc (or admin seeding / edits)
+      allow create: if isOwner(uid) || isAdmin();
+
+      // Updates: user can update their own doc BUT cannot escalate userType
+      // Additional reserved fields could be locked here if desired (e.g. streak aggregates) — those are currently stored elsewhere.
       allow update: if (
         isAdmin() || (
-          isSignedIn() && request.auth.uid == uid &&
-          request.resource.data.userType == resource.data.userType
+          isOwner(uid) && request.resource.data.userType == resource.data.userType
         )
       );
-      // Delete restricted to admins (protect account docs)
+
+      // Deletion: only admins (prevents accidental self‑destruct / UID reuse issues)
       allow delete: if isAdmin();
 
       // Mutes: which anonymous IDs this user has muted
@@ -85,6 +110,21 @@ service cloud.firestore {
       // User favorites (meditations the user starred)
       match /favorites/{favId} {
         allow read, write: if isSignedIn() && request.auth.uid == uid;
+      }
+      // Inbox notifications (owner only). Types currently emitted client / functions side:
+      //  reply, mention, milestone, badge, digest, digest_summary, daily_digest
+      // All writes originate from the client (inboxAdd) or Cloud Functions trigger (still writes as service account, which bypasses rules).
+      match /inbox/{notifId} {
+        allow read, create, update, delete: if isOwner(uid);
+      }
+
+      // Registered device push tokens (for FCM). Owner only.
+      // Cloud Functions uses these to send background notifications triggered by inbox entries.
+      match /pushTokens/{tokenId} {
+        allow read: if isOwner(uid); // only user sees their tokens
+        allow create: if isOwner(uid) && validPushToken(request.resource.data);
+        allow update: if false; // immutable; delete + recreate if it changes
+        allow delete: if isOwner(uid);
       }
     }
 
@@ -148,6 +188,14 @@ service cloud.firestore {
     }
     // Runtime admin badge catalog (icons/emoji metadata)
     match /admin_badges/{badgeId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ===================== Global mutes (anonymous IDs) =====================
+    // Used client side to filter out globally-muted anonymous identifiers.
+    // Public read (non-sensitive), write restricted to admins.
+    match /admin_mutes/{anonId} {
       allow read: if true;
       allow create, update, delete: if isAdmin();
     }

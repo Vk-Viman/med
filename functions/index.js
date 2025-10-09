@@ -260,3 +260,38 @@ exports.onParticipantWrite = functions.firestore
     const { challengeId } = context.params;
     try { await aggregateTeamsForChallenge(challengeId); } catch (e) { console.error('onParticipantWrite aggregate error', challengeId, e); }
   });
+
+// Push notification on new inbox item (in-app notification replication to device)
+exports.onInboxCreated = functions.firestore
+  .document('users/{uid}/inbox/{notifId}')
+  .onCreate(async (snap, context) => {
+    try {
+      const { uid, notifId } = context.params;
+      const data = snap.data() || {};
+      const suppressedTypes = ['digest_summary'];
+      if (suppressedTypes.includes(data.type)) return;
+      const userDoc = await db.collection('users').doc(uid).get();
+      const prefs = userDoc.exists ? (userDoc.data() || {}) : {};
+      if (data.type === 'reply' && prefs.notifyReplies === false) return;
+      if (data.type === 'mention' && prefs.notifyMentions === false) return;
+      if (data.type === 'milestone' && prefs.notifyMilestones === false) return;
+      if (data.type === 'badge' && prefs.notifyBadges === false) return;
+      if (data.type === 'digest' && prefs.weeklyDigestEnabled === false) return;
+      const tokensSnap = await db.collection('users').doc(uid).collection('pushTokens').get();
+      const tokens = tokensSnap.docs.map(d=> (d.data()||{}).token).filter(Boolean);
+      if(!tokens.length) return;
+      const message = {
+        notification: { title: data.title || 'Notification', body: data.body || '' },
+        data: { type: data.type || 'general', notifId: notifId, route: (data.data && data.data.route) || '' },
+        tokens
+      };
+      const resp = await admin.messaging().sendMulticast(message);
+      const invalid = [];
+      resp.responses.forEach((r,i)=>{ if(!r.success) invalid.push(tokens[i]); });
+      if(invalid.length){
+        const batch = db.batch();
+        tokensSnap.docs.forEach(docSnap=>{ if(invalid.includes((docSnap.data()||{}).token)){ batch.delete(docSnap.ref); } });
+        await batch.commit();
+      }
+    } catch(e){ console.error('onInboxCreated push error', e); }
+  });
