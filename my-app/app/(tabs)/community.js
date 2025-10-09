@@ -38,6 +38,8 @@ export default function CommunityScreen() {
   let POST_COOLDOWN_MS = 15000; // 15s cooldown
   let REPLY_COOLDOWN_MS = 10000; // 10s cooldown
   const [leaderboard, setLeaderboard] = useState([]);
+  const [globalLeaderboard, setGlobalLeaderboard] = useState([]); // aggregated across challenges
+  const [lbWindow, setLbWindow] = useState('7d'); // '7d' | '30d' | 'all'
   const [joinedMap, setJoinedMap] = useState({}); // { [challengeId]: { joined:true, minutes:number, rank:number|null, total:number|null } }
   const [progressMap, setProgressMap] = useState({}); // { [challengeId]: percent }
   const [feedMap, setFeedMap] = useState({}); // { [challengeId]: [feedItem,...] }
@@ -156,13 +158,16 @@ export default function CommunityScreen() {
           const rows = psnap.docs.map(d=> ({ uid:d.id, ...(d.data()||{}) }));
           // Leaderboard for the first challenge
           // (Keep original behavior but recompute in realtime)
-          setLeaderboard(prev=>{
-            if (challenges.length>0 && challenges[0]?.id === ch.id) {
-              const top = [...rows].sort((a,b)=> (b.minutes||0) - (a.minutes||0)).slice(0,5).map(r=> ({ uid:r.uid, minutes: r.minutes||0 }));
-              return top;
-            }
-            return prev;
-          });
+          // If window is 'all', we can present raw participant minutes for active challenge
+          if (lbWindow === 'all') {
+            setLeaderboard(prev=>{
+              if (challenges.length>0 && challenges[0]?.id === ch.id) {
+                const top = [...rows].sort((a,b)=> (b.minutes||0) - (a.minutes||0)).slice(0,5).map(r=> ({ uid:r.uid, minutes: r.minutes||0 }));
+                return top;
+              }
+              return prev;
+            });
+          }
           // Update joined map, rank, totals, progress
           setJoinedMap(prev => {
             const next = { ...prev };
@@ -225,6 +230,72 @@ export default function CommunityScreen() {
     });
     return ()=> { unsubs.forEach(fn=> { try { fn(); } catch {} }); };
   }, [challenges.length]);
+
+  // Compute global all-time leaderboard (client-side) by summing participant minutes across all challenges
+  useEffect(()=>{
+    let cancelled = false;
+    (async()=>{
+      try {
+        const totals = new Map();
+        for(const ch of challenges){
+          try {
+            const partSnap = await getDocs(collection(db, 'challenges', ch.id, 'participants'));
+            partSnap.docs.forEach(d=>{
+              const m = Number(d.data()?.minutes||0);
+              if(m>0) totals.set(d.id, (totals.get(d.id)||0)+m);
+            });
+          } catch {}
+          if(cancelled) return;
+        }
+        const arr = Array.from(totals.entries()).map(([uid, minutes])=> ({ uid, minutes }));
+        arr.sort((a,b)=> b.minutes - a.minutes);
+        if(!cancelled) setGlobalLeaderboard(arr.slice(0,5));
+      } catch {}
+    })();
+    return ()=>{ cancelled = true; };
+  }, [challenges.map(c=>c.id).join(',')]);
+
+  // Recompute time-window leaderboards from sessions (per-user aggregates)
+  useEffect(()=>{
+    let cancelled = false;
+    (async()=>{
+      try {
+        // Only recompute for 7d or 30d; 'all' uses challenge participant real-time listener
+        if(lbWindow === 'all') return;
+        const now = Date.now();
+        const days = lbWindow === '7d' ? 7 : 30;
+        const start = new Date(now - days*24*60*60*1000);
+        // Query recent sessions across users; without an index on endedAt this may need a collectionGroup in future
+        // For now, approximate by scanning participants of active challenges (already in state) and fetching each user's recent aggregate doc
+        const userIds = new Set();
+        challenges.forEach(ch=>{ (ch.participants||[]).forEach(p=> userIds.add(p.uid)); });
+        // Fallback: if no challenge participants loaded, derive from leaderboard current list
+        leaderboard.forEach(r=> userIds.add(r.uid));
+        const arr = Array.from(userIds).slice(0,200); // cap to 200 for performance
+        const perUser = [];
+        for(const id of arr){
+          try {
+            // Sessions subcollection scan limited by date window (client side filter if missing index)
+            const sessRef = collection(db, 'users', id, 'sessions');
+            const qref = query(sessRef, orderBy('endedAt','desc'), limit(200));
+            const snap = await getDocs(qref);
+            let mins = 0;
+            snap.docs.forEach(d=>{
+              const data = d.data()||{};
+              const end = data.endedAt?.toDate ? data.endedAt.toDate() : null;
+              const m = Number(data.minutes||data.durationMinutes||0);
+              if(end && end >= start) mins += m;
+            });
+            if(mins>0) perUser.push({ uid:id, minutes: mins });
+          } catch {}
+          if(cancelled) return;
+        }
+        perUser.sort((a,b)=> b.minutes - a.minutes);
+        if(!cancelled) setLeaderboard(perUser.slice(0,5));
+      } catch {}
+    })();
+    return ()=>{ cancelled = true; };
+  }, [lbWindow, challenges.length]);
 
   // Guidelines banner persistence
   useEffect(()=>{
@@ -689,6 +760,13 @@ export default function CommunityScreen() {
       </View>
 
       <Text style={styles.section}>Leaderboard</Text>
+      <View style={{ flexDirection:'row', gap:8, marginLeft:12, marginBottom:4 }}>
+        {['7d','30d','all'].map(w=> (
+          <TouchableOpacity key={w} onPress={()=> setLbWindow(w)} style={{ paddingHorizontal:10, paddingVertical:4, borderRadius:14, backgroundColor: lbWindow===w ? (theme.bg === '#0B1722' ? '#1b2b3b' : '#0288D1') : (theme.bg === '#0B1722' ? '#15222f' : '#E3F2FD') }}>
+            <Text style={{ fontSize:12, fontWeight:'700', color: lbWindow===w ? '#fff' : theme.text }}>{w}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
       <FlatList
         data={leaderboard}
         keyExtractor={(item) => item.uid}
@@ -697,6 +775,19 @@ export default function CommunityScreen() {
           <View style={styles.badge}><Text style={{ color: theme.text }}>{index+1}. {item.uid.slice(0,6)} • {item.minutes}m</Text></View>
         )}
       />
+      {globalLeaderboard.length>0 && (
+        <>
+          <Text style={[styles.section,{ marginTop:12 }]}>Global (All Challenges)</Text>
+          <FlatList
+            data={globalLeaderboard}
+            keyExtractor={(item)=> item.uid }
+            horizontal
+            renderItem={({ item, index }) => (
+              <View style={styles.badge}><Text style={{ color: theme.text }}>{index+1}. {item.uid.slice(0,6)} • {item.minutes}m</Text></View>
+            )}
+          />
+        </>
+      )}
 
       <Text style={styles.section}>Anonymous Board</Text>
       <View style={styles.postRow}>

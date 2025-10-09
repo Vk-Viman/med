@@ -152,6 +152,11 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
+    // ===================== Admin analytics snapshots =====================
+    match /admin_analytics/{dateKey} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
     // ===================== Privacy requests =====================
     match /privacy_requests/{reqId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);

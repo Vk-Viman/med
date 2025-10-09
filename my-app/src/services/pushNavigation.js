@@ -1,4 +1,15 @@
-import * as Notifications from 'expo-notifications';
+let NotificationsMod = null;
+async function getNotifications(){
+  if (NotificationsMod) return NotificationsMod;
+  try {
+    const { Platform } = await import('react-native');
+    const Constants = (await import('expo-constants')).default;
+    const isExpoGoAndroid = Platform.OS === 'android' && Constants?.appOwnership === 'expo';
+    if (isExpoGoAndroid) return null; // Don't load in Expo Go Android
+    NotificationsMod = await import('expo-notifications');
+  } catch {}
+  return NotificationsMod;
+}
 import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
 
@@ -28,12 +39,15 @@ export function openFromNotificationData(data){
 
 export function wireForegroundHandler(){
   // Example: show in-app banner or just no-op; expo-notifications displays system notifications by default
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-    }),
+  getNotifications().then((Notifications)=>{
+    if(!Notifications) return;
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+      }),
+    });
   });
 }

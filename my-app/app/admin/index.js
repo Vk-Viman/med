@@ -55,6 +55,8 @@ export default function AdminHome(){
   <View style={{ height: 8 }} />
   <PrimaryButton title="Global Mutes" onPress={()=> router.push('/admin/mutes')} fullWidth variant='secondary' />
   <View style={{ height: 8 }} />
+  <PrimaryButton title="Analytics" onPress={()=> router.push('/admin/analytics')} fullWidth variant='secondary' />
+  <View style={{ height: 8 }} />
   <PrimaryButton title="Privacy Center" onPress={()=> router.push('/admin/privacy')} fullWidth variant='secondary' />
   <View style={{ height: 8 }} />
   <PrimaryButton title="Admin Profile" onPress={()=> router.push('/admin/profile')} fullWidth variant='secondary' />

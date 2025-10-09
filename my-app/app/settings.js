@@ -722,6 +722,16 @@ export default function SettingsScreen() {
               ))}
             </View>
           </View>
+          <View style={[styles.rowBetweenMul, { marginTop:8 }]}>
+            <Text style={styles.label}>Weekly digest</Text>
+            <View style={styles.inlineOptions}>
+              {['On','Off'].map(opt => (
+                <TouchableOpacity key={opt} onPress={()=> { if(opt==='On'){ toggleWeeklyDigest(); if(!weeklyDigestEnabled) toggleWeeklyDigest(); } else { if(weeklyDigestEnabled) toggleWeeklyDigest(); } }} style={[styles.intervalChip, ((weeklyDigestEnabled && opt==='On') || (!weeklyDigestEnabled && opt==='Off')) && styles.intervalChipActive]} accessibilityRole='button' accessibilityState={{ selected: (weeklyDigestEnabled && opt==='On') || (!weeklyDigestEnabled && opt==='Off') }} accessibilityLabel={`Weekly digest ${opt}`}>
+                  <Text style={[styles.intervalChipText, ((weeklyDigestEnabled && opt==='On') || (!weeklyDigestEnabled && opt==='Off')) && styles.intervalChipTextActive]}>{opt}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
           <Text style={styles.noteText}>Reminders respect your device focus settings. Quiet hours are stored for future goal nudges.</Text>
         </View>
       );

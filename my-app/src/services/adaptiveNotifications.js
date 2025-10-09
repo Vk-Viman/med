@@ -87,7 +87,11 @@ export async function markSessionCompleted(){
 
 export async function registerNotificationActions(){
   try {
-    const Notifications = await import('expo-notifications');
+  const { Platform } = await import('react-native');
+  const Constants = (await import('expo-constants')).default;
+  const isExpoGoAndroid = Platform.OS === 'android' && Constants?.appOwnership === 'expo';
+  if (isExpoGoAndroid) return; // skip in Expo Go Android
+  const Notifications = await import('expo-notifications');
     await Notifications.setNotificationCategoryAsync('med-reminder', [
       { identifier: 'SNOOZE_30', buttonTitle: 'Snooze 30m', options: { opensAppToForeground: false } },
       { identifier: 'SNOOZE_60', buttonTitle: 'Snooze 1h', options: { opensAppToForeground: false } },
@@ -116,6 +120,10 @@ export async function handleNotificationResponse(response){
 }
 
 async function scheduleOneOffInMinutes(min){
+  const { Platform } = await import('react-native');
+  const Constants = (await import('expo-constants')).default;
+  const isExpoGoAndroid = Platform.OS === 'android' && Constants?.appOwnership === 'expo';
+  if (isExpoGoAndroid) return; // skip
   const Notifications = await import('expo-notifications');
   await Notifications.scheduleNotificationAsync({
     content: { title: 'Take a mindful break', body: 'We will remind you again soon.' },
@@ -124,6 +132,10 @@ async function scheduleOneOffInMinutes(min){
 }
 
 async function scheduleTodayAt(hour, minute, { title = 'Time to meditate', body = 'Just 10 minutes to reset your day.' } = {}){
+  const { Platform } = await import('react-native');
+  const Constants = (await import('expo-constants')).default;
+  const isExpoGoAndroid = Platform.OS === 'android' && Constants?.appOwnership === 'expo';
+  if (isExpoGoAndroid) return; // skip
   const Notifications = await import('expo-notifications');
   const now = new Date();
   const when = new Date(now);
@@ -176,6 +188,10 @@ async function getMoodTrend(){
 }
 
 export async function runAdaptiveScheduler(){
+  const { Platform } = await import('react-native');
+  const Constants = (await import('expo-constants')).default;
+  const isExpoGoAndroid = Platform.OS === 'android' && Constants?.appOwnership === 'expo';
+  if (isExpoGoAndroid) return { scheduled:false, reason:'expo-go-android' };
   const Notifications = await import('expo-notifications');
   const settings = await getAdaptiveSettings();
   if(!settings.enabled) return { scheduled: false, reason: 'disabled' };

@@ -1,5 +1,6 @@
 {
   "dependencies": {
-    "@react-native-community/netinfo": "^11.4.1"
+    "@react-native-community/netinfo": "^11.4.1",
+    "xlsx": "^0.18.5"
   }
 }

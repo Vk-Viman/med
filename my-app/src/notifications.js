@@ -108,3 +108,29 @@ export async function cancelAllLocalNotifications() {
   const Notifications = await import("expo-notifications");
   await Notifications.cancelAllScheduledNotificationsAsync();
 }
+
+// Schedule a weekly summary notification (client-side only) for Sunday 18:00 local time.
+export async function scheduleWeeklyDigestReminder(){
+  try {
+    if (await isAndroidExpoGo()) return false;
+    const Notifications = await import('expo-notifications');
+    const granted = await requestLocalNotificationPermissions();
+    if(!granted) return false;
+    // Find next Sunday 18:00
+    const now = new Date();
+    const next = new Date(now);
+    next.setHours(18,0,0,0);
+    // 0 = Sunday
+    const day = next.getDay();
+    if(day !== 0 || next <= now){
+      // advance to next Sunday
+      const diff = (7 - day) % 7 || 7; // days until next Sunday
+      next.setDate(next.getDate() + diff);
+    }
+    await Notifications.scheduleNotificationAsync({
+      content:{ title:'Weekly Summary Ready', body:'Open your weekly report to review progress.', data:{ route:'/report' } },
+      trigger:{ date: next, repeats: true }
+    });
+    return true;
+  } catch { return false; }
+}

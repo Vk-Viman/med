@@ -86,20 +86,33 @@ function ActivityWrapper({ children }){
     let respSub;
     (async()=>{
       try {
+        const { Platform } = await import('react-native');
+        const Constants = (await import('expo-constants')).default;
+        const isExpoGoAndroid = Platform.OS === 'android' && Constants?.appOwnership === 'expo';
+        if (isExpoGoAndroid) return; // Skip expo-notifications wiring in Expo Go Android
         const Notifications = await import('expo-notifications');
         wireForegroundHandler();
         await registerNotificationActions();
-        respSub = Notifications.addNotificationResponseReceivedListener((resp)=>{
-          try { handleNotificationResponse(resp); } catch {}
-          try { openFromNotificationData(resp?.notification?.request?.content?.data); } catch {}
-        });
+        if (Notifications?.addNotificationResponseReceivedListener) {
+          respSub = Notifications.addNotificationResponseReceivedListener((resp)=>{
+            try { handleNotificationResponse(resp); } catch {}
+            try { openFromNotificationData(resp?.notification?.request?.content?.data); } catch {}
+          });
+        }
       } catch {}
     })();
     const onAppState = async (s) => {
       if (s === 'active') {
         try {
-          // Attempt to register push tokens on app foreground
-          try { await registerPushTokens(); } catch {}
+          // Attempt to register push tokens on app foreground (skip in Expo Go Android)
+          try {
+            const { Platform } = await import('react-native');
+            const Constants = (await import('expo-constants')).default;
+            const isExpoGoAndroid = Platform.OS === 'android' && Constants?.appOwnership === 'expo';
+            if (!isExpoGoAndroid) {
+              await registerPushTokens();
+            }
+          } catch {}
           const s = await getAdaptiveSettings();
           if (s?.enabled) await runAdaptiveScheduler();
         } catch {}

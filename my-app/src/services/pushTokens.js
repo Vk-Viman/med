@@ -1,4 +1,3 @@
-import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { auth, db } from '../../firebase/firebaseConfig';
@@ -8,11 +7,14 @@ let lastRegistered = 0;
 
 export async function registerPushTokens({ force = false } = {}){
   try {
+    const { Platform } = await import('react-native');
+    const Constants = (await import('expo-constants')).default;
+    const isExpoGoAndroid = Platform.OS === 'android' && Constants?.appOwnership === 'expo';
+    if (isExpoGoAndroid) return { ok:false, reason:'expo-go-android' };
+    const Notifications = await import('expo-notifications');
     const user = auth.currentUser; if (!user) return { ok:false, reason:'no-auth' };
     const now = Date.now();
     if (!force && now - lastRegistered < 10 * 60 * 1000) return { ok:true, reason:'cached' };
-    // Expo Go on Android no longer supports remote push (SDK 53+)
-    const isExpoGoAndroid = Platform.OS === 'android' && Constants?.appOwnership === 'expo';
 
     // Ask permissions (Android 13+ requires POST_NOTIFICATIONS)
     const { status } = await Notifications.requestPermissionsAsync();
@@ -21,7 +23,7 @@ export async function registerPushTokens({ force = false } = {}){
     // Device push token (FCM on Android when google-services is configured)
     let fcmToken = null;
     try {
-      if (Platform.OS === 'android' && !isExpoGoAndroid) {
+      if (Platform.OS === 'android') {
         const devTok = await Notifications.getDevicePushTokenAsync();
         // devTok: { type: 'fcm', data: '<token>' }
         fcmToken = devTok?.data || null;
