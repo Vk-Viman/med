@@ -97,12 +97,12 @@ export default function AdminBroadcast(){
   return (
     <SafeAreaView style={{ flex:1, backgroundColor: theme.bg }}>
       <ScrollView contentContainerStyle={{ padding:16 }}>
-        <Text style={{ fontSize:22, fontWeight:'800', color: theme.text, marginBottom:12 }}>Broadcast Digest</Text>
-        <Text style={{ color: theme.textMuted, marginBottom:16 }}>Send a one-time inbox notification to every user. Use sparingly. This runs client-side and pages through users (no Cloud Functions).</Text>
-        <Text style={{ fontWeight:'700', color: theme.text }}>Title</Text>
-        <TextInput value={title} onChangeText={setTitle} placeholder='Announcement title' placeholderTextColor={theme.textMuted} style={{ borderWidth:1, borderColor: theme.border||'#345', borderRadius:8, padding:10, color: theme.text, marginTop:4, marginBottom:12 }} />
-        <Text style={{ fontWeight:'700', color: theme.text }}>Body</Text>
-        <TextInput value={body} onChangeText={setBody} placeholder='Summary body (<=180 chars)' placeholderTextColor={theme.textMuted} multiline style={{ borderWidth:1, borderColor: theme.border||'#345', borderRadius:8, padding:10, color: theme.text, marginTop:4, height:120, marginBottom:12, textAlignVertical:'top' }} />
+        <Text style={{ fontSize:28, fontWeight:'800', color: theme.text, marginBottom:16, letterSpacing:0.3 }}>Broadcast Digest</Text>
+        <Text style={{ color: theme.textMuted, marginBottom:20, fontSize:15, lineHeight:22 }}>Send a one-time inbox notification to every user. Use sparingly. This runs client-side and pages through users (no Cloud Functions).</Text>
+        <Text style={{ fontWeight:'700', color: theme.text, fontSize:15, marginBottom:6, letterSpacing:0.2 }}>Title</Text>
+        <TextInput value={title} onChangeText={setTitle} placeholder='Announcement title' placeholderTextColor={theme.textMuted} style={{ borderWidth:2, borderColor: theme.border||'#90CAF9', borderRadius:14, padding:14, color: theme.text, marginTop:4, marginBottom:16, fontSize:15, shadowColor:'#000', shadowOpacity:0.04, shadowRadius:4, elevation:1 }} />
+        <Text style={{ fontWeight:'700', color: theme.text, fontSize:15, marginBottom:6, letterSpacing:0.2 }}>Body</Text>
+        <TextInput value={body} onChangeText={setBody} placeholder='Summary body (<=180 chars)' placeholderTextColor={theme.textMuted} multiline style={{ borderWidth:2, borderColor: theme.border||'#90CAF9', borderRadius:14, padding:14, color: theme.text, marginTop:4, height:140, marginBottom:16, textAlignVertical:'top', fontSize:15, lineHeight:22, shadowColor:'#000', shadowOpacity:0.04, shadowRadius:4, elevation:1 }} />
         <PrimaryButton title={sending? `Sending… ${sentCount}` : 'Send Broadcast'} onPress={fanOut} disabled={sending} fullWidth />
         <View style={{ height:16 }} />
         {sending && (

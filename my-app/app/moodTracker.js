@@ -13,6 +13,7 @@ if (typeof global === "object" && (typeof global.crypto === "undefined" || typeo
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, Modal, FlatList, Animated, useWindowDimensions, Switch } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
+import { Ionicons } from '@expo/vector-icons';
 import { impact as hImpact, success as hSuccess, error as hError } from "../src/utils/haptics";
 import GradientBackground from "../src/components/GradientBackground";
 import MarkdownPreview from "../src/components/MarkdownPreview";
@@ -24,6 +25,8 @@ import { serverTimestamp } from "firebase/firestore"; // kept if still needed el
 import PrimaryButton from "../src/components/PrimaryButton";
 import CryptoJS from "crypto-js"; // legacy encryption retained for now
 import { createMoodEntry, flushQueue } from "../src/services/moodEntries";
+import ConfettiView from "../src/components/ConfettiView";
+import AnimatedButton from "../src/components/AnimatedButton";
 // Ensure CryptoJS uses secure RNG from crypto.getRandomValues
 try {
   const originalRandom = CryptoJS.lib.WordArray.random;
@@ -95,6 +98,7 @@ export default function MoodTracker() {
   })();
   const [note, setNote] = useState("");
   const [showSuccess, setShowSuccess] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [showPreview, setShowPreview] = useState(false);
   const MAX_NOTE = 500;
@@ -104,6 +108,7 @@ export default function MoodTracker() {
   const [tooltip, setTooltip] = useState(null); // {key, label}
   const tooltipOpacity = useRef(new Animated.Value(0)).current;
   const hideTooltipTimeout = useRef(null);
+  const successScale = useRef(new Animated.Value(0)).current;
 
   // Animated scale map per mood key
   const scalesRef = useRef({});
@@ -215,13 +220,33 @@ export default function MoodTracker() {
       await flushPersistence();
       await createMoodEntry({ mood, stress, note });
       await flushQueue();
-  hSuccess();
+      
+      // Success celebration!
+      hSuccess();
       setShowSuccess(true);
-      setTimeout(()=> setShowSuccess(false), 1600);
+      setShowConfetti(true);
+      
+      // Animate success badge
+      Animated.sequence([
+        Animated.spring(successScale, {
+          toValue: 1,
+          tension: 100,
+          friction: 5,
+          useNativeDriver: true,
+        }),
+        Animated.delay(1200),
+        Animated.timing(successScale, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start(() => setShowSuccess(false));
+      
+      setTimeout(() => setShowConfetti(false), 2500);
       setMood(null); setStress(5); setNote("");
-      setTimeout(()=> router.back(), 900);
+      setTimeout(() => router.back(), 1200);
     } catch (e) {
-  hError();
+      hError();
       Alert.alert('Save Failed', e.message || 'Unknown error');
     }
     setLoading(false);
@@ -230,8 +255,15 @@ export default function MoodTracker() {
   return (
     <GradientBackground>
     <View style={styles.container}>
-      <Text style={styles.heading} accessibilityRole='header'>How are you feeling?</Text>
-      <Text style={styles.subheading}>Tap a mood, adjust stress, optionally journal.</Text>
+      <View style={styles.headerSection}>
+        <View style={styles.iconBadge}>
+          <Ionicons name="happy-outline" size={28} color="#0288D1" />
+        </View>
+        <View style={{ flex: 1, marginLeft: 16 }}>
+          <Text style={styles.heading} accessibilityRole='header'>How are you feeling?</Text>
+          <Text style={styles.subheading}>Track your mood and build self-awareness</Text>
+        </View>
+      </View>
       <View style={styles.moodRow}>
         {moods.map(m => {
           const scale = getScale(m.key);
@@ -398,12 +430,43 @@ export default function MoodTracker() {
           <MarkdownPreview text={note} />
         </View>
       )}
-      <PrimaryButton title={mood? (loading? 'Saving...' : 'Save') : 'Pick a mood to save'} onPress={saveEntry} disabled={!mood || loading} fullWidth />
+      <AnimatedButton 
+        onPress={saveEntry} 
+        disabled={!mood || loading}
+        hapticStyle="medium"
+      >
+        <LinearGradient
+          colors={mood ? ['#0288D1', '#01579B'] : ['#B0BEC5', '#90A4AE']}
+          style={styles.saveButton}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <Ionicons name={loading ? "hourglass-outline" : "checkmark-circle"} size={22} color="#fff" />
+          <Text style={styles.saveButtonText}>
+            {mood ? (loading ? 'Saving...' : 'Save Entry') : 'Pick a mood to save'}
+          </Text>
+        </LinearGradient>
+      </AnimatedButton>
+      
       {showSuccess && (
-        <View style={styles.toastSuccess} pointerEvents='none'>
-          <Text style={styles.toastSuccessText}>Entry Saved ✓</Text>
-        </View>
+        <Animated.View 
+          style={[styles.successBadge, { transform: [{ scale: successScale }] }]} 
+          pointerEvents='none'
+        >
+          <LinearGradient
+            colors={['#66BB6A', '#43A047']}
+            style={styles.successGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <Ionicons name="checkmark-circle" size={48} color="#fff" />
+            <Text style={styles.successText}>Mood Logged!</Text>
+            <Text style={styles.successSubtext}>Keep up the great work ✨</Text>
+          </LinearGradient>
+        </Animated.View>
       )}
+      
+      <ConfettiView visible={showConfetti} onComplete={() => setShowConfetti(false)} />
 
       <Modal visible={showPicker} transparent animationType="fade" onRequestClose={() => setShowPicker(false)}>
         <View style={styles.modalBackdrop}>
@@ -432,58 +495,309 @@ export default function MoodTracker() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 24 },
-  heading: { fontSize: 22, fontWeight: "800", color: "#01579B", marginBottom: 4 },
-  subheading:{ fontSize:13, color:'#0277BD', marginBottom:16, fontWeight:'600' },
-  moodRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 18 },
-  selectedMood:{ fontSize:12, fontWeight:'600', color:'#01579B', marginTop:-10, marginBottom:16 },
+  headerSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  iconBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#E1F5FE',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#0288D1',
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  heading: { 
+    fontSize: 22, 
+    fontWeight: "800", 
+    color: "#01579B", 
+    letterSpacing: 0.3,
+  },
+  subheading:{ 
+    fontSize: 13, 
+    color:'#78909C', 
+    fontWeight:'500',
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  saveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 16,
+    borderRadius: 14,
+    shadowColor: '#0288D1',
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  successBadge: {
+    position: 'absolute',
+    top: '40%',
+    left: '50%',
+    marginLeft: -120,
+    width: 240,
+    zIndex: 1000,
+  },
+  successGradient: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    borderRadius: 20,
+    shadowColor: '#43A047',
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
+  },
+  successText: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: '800',
+    marginTop: 12,
+    letterSpacing: 0.3,
+  },
+  successSubtext: {
+    color: '#E8F5E9',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  moodRow: { 
+    flexDirection: "row", 
+    justifyContent: "space-between", 
+    marginBottom: 24,
+    paddingVertical: 8,
+  },
+  selectedMood:{ 
+    fontSize:13, 
+    fontWeight:'700', 
+    color:'#01579B', 
+    marginTop:-8, 
+    marginBottom:20,
+    textAlign: "center",
+    letterSpacing: 0.5,
+  },
   moodBtn: {
-    padding: 4,
+    padding: 6,
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#B3E5FC",
+    borderWidth: 3,
+    borderColor: "#E1F5FE",
     shadowColor: "#000",
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+    marginHorizontal: 2,
+  },
+  selected: { 
+    backgroundColor: "#E1F5FE", 
+    borderColor: "#0288D1",
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+  },
+  editBadge:{ 
+    position:'absolute', 
+    top:6, 
+    right:6, 
+    backgroundColor:'#0288D1', 
+    width:20, 
+    height:20, 
+    borderRadius:10, 
+    alignItems:'center', 
+    justifyContent:'center',
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+  },
+  editBadgeText:{ color:'#fff', fontSize:11, fontWeight:'800' },
+  mood: { includeFontPadding: false, textAlignVertical: "center" },
+  tooltip: { 
+    position: 'absolute', 
+    top: -32, 
+    left: '50%', 
+    transform: [{ translateX: -35 }], 
+    backgroundColor: '#01579B', 
+    paddingHorizontal: 10, 
+    paddingVertical: 6, 
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-    marginHorizontal: 4,
+    elevation: 3,
   },
-  selected: { backgroundColor: "#B3E5FC", borderColor: "#0288D1" },
-  editBadge:{ position:'absolute', top:4, right:4, backgroundColor:'#0288D1', width:18, height:18, borderRadius:9, alignItems:'center', justifyContent:'center' },
-  editBadgeText:{ color:'#fff', fontSize:10, fontWeight:'700' },
-  mood: { includeFontPadding: false, textAlignVertical: "center" },
-  tooltip: { position: 'absolute', top: -30, left: '50%', transform: [{ translateX: -30 }], backgroundColor: '#01579B', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
-  tooltipText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  label: { fontSize: 16, color: "#0277BD", marginBottom: 8 },
-  sliderBlock:{ marginBottom:18 },
-  gradientTrack:{ borderRadius:12, paddingHorizontal:4, justifyContent:'center', height:48 },
-  slider:{ width:'100%', height:40 },
-  ticksRow:{ flexDirection:'row', justifyContent:'space-between', marginTop:4 },
-  tickLabel:{ fontSize:12, color:'#0277BD', width:20, textAlign:'center' },
-  tickActive:{ fontWeight:'700', color:'#01579B' },
-  stressHeaderRow:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:8 },
-  stressAura:{ width:36, height:36, borderRadius:18, alignItems:'center', justifyContent:'center', shadowColor:'#000', shadowOpacity:0.15, shadowRadius:6, shadowOffset:{width:0,height:2}, elevation:3 },
-  stressAuraText:{ color:'#fff', fontWeight:'700' },
-  qualitative:{ marginTop:6, textAlign:'center', fontSize:14, fontWeight:'600' },
-  coaching:{ marginTop:4, textAlign:'center', fontSize:11, fontWeight:'600', color:'#01579B', opacity:0.85 },
-  input: { backgroundColor: "#fff", borderRadius: 8, padding: 12, minHeight: 60, marginBottom: 18 },
-  noteHelper:{ fontSize:11, color:'#0277BD', marginBottom:8, fontWeight:'500' },
+  tooltipText: { color: '#fff', fontSize: 12, fontWeight: '700', letterSpacing: 0.3 },
+  label: { 
+    fontSize: 17, 
+    color: "#0277BD", 
+    marginBottom: 10,
+    fontWeight: "700",
+  },
+  sliderBlock:{ marginBottom:20 },
+  gradientTrack:{ 
+    borderRadius:16, 
+    paddingHorizontal:6, 
+    justifyContent:'center', 
+    height:52,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+  slider:{ width:'100%', height:44 },
+  ticksRow:{ flexDirection:'row', justifyContent:'space-between', marginTop:6 },
+  tickLabel:{ fontSize:11, color:'#0277BD', width:22, textAlign:'center', fontWeight: "600" },
+  tickActive:{ fontWeight:'800', color:'#01579B', fontSize: 12 },
+  stressHeaderRow:{ 
+    flexDirection:'row', 
+    alignItems:'center', 
+    justifyContent:'space-between', 
+    marginBottom:10,
+  },
+  stressAura:{ 
+    width:42, 
+    height:42, 
+    borderRadius:21, 
+    alignItems:'center', 
+    justifyContent:'center', 
+    shadowColor:'#000', 
+    shadowOpacity:0.2, 
+    shadowRadius:8, 
+    shadowOffset:{width:0,height:3}, 
+    elevation:4,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  stressAuraText:{ color:'#fff', fontWeight:'800', fontSize: 16 },
+  qualitative:{ 
+    marginTop:8, 
+    textAlign:'center', 
+    fontSize:16, 
+    fontWeight:'700',
+    color: '#01579B',
+  },
+  coaching:{ 
+    marginTop:6, 
+    textAlign:'center', 
+    fontSize:13, 
+    fontWeight:'600', 
+    color:'#0277BD', 
+    opacity:0.9,
+    fontStyle: 'italic',
+  },
+  input: { 
+    backgroundColor: "#fff", 
+    borderRadius: 12, 
+    padding: 14, 
+    minHeight: 80, 
+    marginBottom: 20,
+    borderWidth: 1.5,
+    borderColor: "#E1F5FE",
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  noteHelper:{ fontSize:12, color:'#0277BD', marginBottom:10, fontWeight:'600' },
   noteHeaderRow:{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-end' },
   noteMetaRow:{ alignItems:'flex-end' },
-  counter:{ fontSize:12, color:'#0277BD', textAlign:'right' },
-  previewToggle:{ flexDirection:'row', alignItems:'center', marginTop:4 },
-  previewLabel:{ fontSize:12, color:'#01579B', marginRight:4 },
-  previewBox:{ backgroundColor:'#FFFFFFAA', padding:12, borderRadius:8, marginBottom:18 },
-  formatBar:{ flexDirection:'row', marginBottom:8 },
-  formatBtn:{ backgroundColor:'#0288D1', paddingHorizontal:12, paddingVertical:6, borderRadius:6, marginRight:8 },
-  formatBtnText:{ color:'#fff', fontWeight:'700', fontSize:14 },
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'center', padding: 24 },
-  modalCard: { backgroundColor: '#fff', borderRadius: 20, padding: 16, maxHeight: '70%' },
-  modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 12, color: '#01579B' },
-  emojiCell: { width: 48, height: 48, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginVertical: 6 },
-  emojiCellText: { fontSize: 30 },
-  toastSuccess:{ position:'absolute', bottom:30, alignSelf:'center', backgroundColor:'#FFFFFFEE', paddingHorizontal:20, paddingVertical:12, borderRadius:24, shadowColor:'#000', shadowOpacity:0.15, shadowRadius:8, shadowOffset:{width:0,height:3}, elevation:4 },
-  toastSuccessText:{ fontSize:14, fontWeight:'700', color:'#01579B' }
+  counter:{ fontSize:12, color:'#0277BD', textAlign:'right', fontWeight: "600" },
+  previewToggle:{ flexDirection:'row', alignItems:'center', marginTop:6 },
+  previewLabel:{ fontSize:13, color:'#01579B', marginRight:6, fontWeight: "600" },
+  previewBox:{ 
+    backgroundColor:'#FFFFFF', 
+    padding:14, 
+    borderRadius:12, 
+    marginBottom:20,
+    borderWidth: 1,
+    borderColor: "#E1F5FE",
+  },
+  formatBar:{ flexDirection:'row', marginBottom:10 },
+  formatBtn:{ 
+    backgroundColor:'#0288D1', 
+    paddingHorizontal:14, 
+    paddingVertical:8, 
+    borderRadius:8, 
+    marginRight:10,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  formatBtnText:{ color:'#fff', fontWeight:'800', fontSize:15 },
+  modalBackdrop: { 
+    flex: 1, 
+    backgroundColor: 'rgba(0,0,0,0.5)', 
+    justifyContent: 'center', 
+    padding: 24,
+  },
+  modalCard: { 
+    backgroundColor: '#fff', 
+    borderRadius: 24, 
+    padding: 20, 
+    maxHeight: '70%',
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 5,
+  },
+  modalTitle: { 
+    fontSize: 20, 
+    fontWeight: '800', 
+    marginBottom: 16, 
+    color: '#01579B',
+    textAlign: 'center',
+  },
+  emojiCell: { 
+    width: 52, 
+    height: 52, 
+    borderRadius: 14, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginVertical: 6,
+    backgroundColor: '#F5F5F5',
+  },
+  emojiCellText: { fontSize: 32 },
+  toastSuccess:{ 
+    position:'absolute', 
+    bottom:40, 
+    alignSelf:'center', 
+    backgroundColor:'#FFFFFF', 
+    paddingHorizontal:24, 
+    paddingVertical:14, 
+    borderRadius:28, 
+    shadowColor:'#000', 
+    shadowOpacity:0.2, 
+    shadowRadius:12, 
+    shadowOffset:{width:0,height:4}, 
+    elevation:5,
+    borderWidth: 2,
+    borderColor: '#4CAF50',
+  },
+  toastSuccessText:{ 
+    fontSize:16, 
+    fontWeight:'800', 
+    color:'#4CAF50',
+    letterSpacing: 0.5,
+  }
 });

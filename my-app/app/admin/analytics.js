@@ -282,11 +282,11 @@ export default function AdminAnalytics(){
 }
 
 const styles = StyleSheet.create({
-  h1:{ fontSize:20, fontWeight:'800' },
-  h2:{ fontSize:16, fontWeight:'800' },
-  card:{ padding:12, borderRadius:12, marginTop:8 },
-  kv:{ fontSize:14 },
-  k:{ fontWeight:'800' },
-  badge:{ paddingHorizontal:10, paddingVertical:6, borderRadius:12 },
-  input:{ height:40, paddingHorizontal:10, borderRadius:8, minWidth:140 }
+  h1:{ fontSize:28, fontWeight:'800', letterSpacing:0.3, marginBottom:4 },
+  h2:{ fontSize:20, fontWeight:'800', letterSpacing:0.2, marginTop:8 },
+  card:{ padding:18, borderRadius:16, marginTop:12, shadowColor:'#000', shadowOpacity:0.08, shadowRadius:8, elevation:3, borderWidth:1, borderColor:'rgba(0,0,0,0.05)' },
+  kv:{ fontSize:15, lineHeight:24 },
+  k:{ fontWeight:'800', letterSpacing:0.2 },
+  badge:{ paddingHorizontal:14, paddingVertical:8, borderRadius:16, shadowColor:'#000', shadowOpacity:0.05, shadowRadius:4, elevation:1 },
+  input:{ height:48, paddingHorizontal:14, borderRadius:12, minWidth:160, fontSize:15, borderWidth:2, borderColor:'rgba(0,0,0,0.1)', shadowColor:'#000', shadowOpacity:0.04, shadowRadius:4, elevation:1 }
 });

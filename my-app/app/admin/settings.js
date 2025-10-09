@@ -132,9 +132,9 @@ export default function AdminSettings(){
   );
 }
 const styles = StyleSheet.create({
-  h1:{ fontSize:20, fontWeight:'800' },
-  row:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingVertical:10 },
-  label:{ fontSize:14, fontWeight:'700' },
-  input:{ borderWidth:1, borderRadius:8, paddingHorizontal:10, paddingVertical:8 },
-  textarea:{ borderWidth:1, borderRadius:8, paddingHorizontal:10, paddingVertical:8, minHeight:100, textAlignVertical:'top' }
+  h1:{ fontSize:24, fontWeight:'800', letterSpacing:0.3, marginBottom:6 },
+  row:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingVertical:14, borderBottomWidth:1, borderBottomColor:'rgba(0,0,0,0.05)' },
+  label:{ fontSize:15, fontWeight:'700', letterSpacing:0.2 },
+  input:{ borderWidth:2, borderRadius:12, paddingHorizontal:14, paddingVertical:12, fontSize:15, shadowColor:'#000', shadowOpacity:0.04, shadowRadius:4, elevation:1 },
+  textarea:{ borderWidth:2, borderRadius:12, paddingHorizontal:14, paddingVertical:12, minHeight:120, textAlignVertical:'top', fontSize:15, lineHeight:22, shadowColor:'#000', shadowOpacity:0.04, shadowRadius:4, elevation:1 }
 });

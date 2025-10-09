@@ -742,52 +742,52 @@ export function useWellnessA11yAnnounce(unlocked, ref) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
-  heading: { fontSize: 22, fontWeight: "700", color: "#01579B", marginBottom: 12 },
-  subheading: { fontSize: 18, fontWeight: "600", color: "#0277BD", marginBottom: 8 },
-  label: { fontSize: 16, color: "#0277BD", marginBottom: 12 },
-  entry: { backgroundColor: "#fff", borderRadius: 8, padding: 12, marginBottom: 10 },
-  mood: { fontSize: 16, fontWeight: "600" },
-  legacy: { fontSize:10, color:'#FB8C00', fontWeight:'700' },
-  note: { fontSize: 15, color: "#01579B", marginVertical: 4 },
-  notePlaceholder:{ fontSize:13, fontStyle:'italic', color:'#607D8B', marginVertical:4 },
-  date: { fontSize: 12, color: "#90A4AE" },
-  loadingOverlay:{ position:'absolute', top:0,left:0,right:0,bottom:0, alignItems:'center', justifyContent:'center' },
-  scrollTopBtn:{ position:'absolute', right:16, bottom:24, backgroundColor:'#0288D1', paddingHorizontal:14, paddingVertical:10, borderRadius:24, shadowColor:'#000', shadowOpacity:0.15, shadowRadius:6, elevation:4 },
-  scrollTopBtnText:{ color:'#fff', fontWeight:'700' },
-  modalBackdrop:{ flex:1, backgroundColor:'rgba(0,0,0,0.4)', justifyContent:'center', padding:24 },
-  modalCard:{ backgroundColor:'#fff', borderRadius:16, padding:16 },
-  modalTitle:{ fontSize:18, fontWeight:'700', color:'#01579B', marginBottom:8 },
-  modalLabel:{ fontSize:14, fontWeight:'600', color:'#0277BD', marginTop:8 },
-  input:{ backgroundColor:'#F1F8FE', borderRadius:8, paddingHorizontal:10, paddingVertical:8, marginTop:4 },
-  modalActions:{ flexDirection:'row', justifyContent:'flex-end', marginTop:16, gap:12 },
-  actionBtn:{ paddingHorizontal:16, paddingVertical:10, borderRadius:8 },
-  actionText:{ color:'#fff', fontWeight:'600' }
+  container: { flex: 1, padding: 20, backgroundColor: '#F5F5F5' },
+  heading: { fontSize: 28, fontWeight: "800", color: "#01579B", marginBottom: 16, letterSpacing: 0.3 },
+  subheading: { fontSize: 20, fontWeight: "700", color: "#0277BD", marginBottom: 12, letterSpacing: 0.2 },
+  label: { fontSize: 17, color: "#0277BD", marginBottom: 14, fontWeight: '600' },
+  entry: { backgroundColor: "#fff", borderRadius: 14, padding: 16, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, elevation: 2, borderWidth: 1, borderColor: '#E3F2FD' },
+  mood: { fontSize: 17, fontWeight: "700", letterSpacing: 0.2 },
+  legacy: { fontSize: 11, color: '#FB8C00', fontWeight: '700', letterSpacing: 0.2 },
+  note: { fontSize: 15, color: "#01579B", marginVertical: 6, lineHeight: 22 },
+  notePlaceholder: { fontSize: 14, fontStyle: 'italic', color: '#607D8B', marginVertical: 6 },
+  date: { fontSize: 13, color: "#90A4AE", marginTop: 4 },
+  loadingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.9)' },
+  scrollTopBtn: { position: 'absolute', right: 20, bottom: 32, backgroundColor: '#0288D1', paddingHorizontal: 18, paddingVertical: 14, borderRadius: 28, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 8, elevation: 6 },
+  scrollTopBtnText: { color: '#fff', fontWeight: '800', fontSize: 14, letterSpacing: 0.3 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 28 },
+  modalCard: { backgroundColor: '#fff', borderRadius: 20, padding: 20, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 20, elevation: 10 },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: '#01579B', marginBottom: 12, letterSpacing: 0.3 },
+  modalLabel: { fontSize: 15, fontWeight: '600', color: '#0277BD', marginTop: 12 },
+  input: { backgroundColor: '#F1F8FE', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginTop: 6, borderWidth: 2, borderColor: '#E3F2FD', fontSize: 15 },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 20, gap: 12 },
+  actionBtn: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 },
+  actionText: { color: '#fff', fontWeight: '700', fontSize: 15, letterSpacing: 0.3 }
 });
 // Additional styles for preview toggle
 Object.assign(styles, {
-  timeframeRow:{ flexDirection:'row', marginBottom:12, gap:8 },
-  timeBtn:{ paddingHorizontal:14, paddingVertical:6, borderRadius:20, backgroundColor:'#E1F5FE' },
-  timeBtnActive:{ backgroundColor:'#0288D1' },
-  timeBtnText:{ color:'#0288D1', fontWeight:'600', fontSize:12 },
-  timeBtnTextActive:{ color:'#fff' },
-  statLabel:{ fontSize:11, color:'#0277BD', fontWeight:'600' },
-  statValue:{ fontSize:14, fontWeight:'700', color:'#01579B', marginTop:2 },
-  statBlock:{ width:'33%', marginBottom:6 },
-  shareBtn:{ backgroundColor:'#0288D1', paddingHorizontal:12, paddingVertical:6, borderRadius:8, alignSelf:'flex-start', marginTop:4 },
-  shareBtnText:{ color:'#fff', fontSize:12, fontWeight:'600' },
-  noteHeaderRow:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginTop:8 },
-  previewToggleRow:{ flexDirection:'row', alignItems:'center', gap:6 },
-  previewToggleLabel:{ fontSize:12, color:'#01579B', marginRight:4 },
-  previewBox:{ backgroundColor:'#FFFFFF', borderRadius:8, padding:10, marginTop:6 }
+  timeframeRow: { flexDirection: 'row', marginBottom: 16, gap: 10, flexWrap: 'wrap' },
+  timeBtn: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 24, backgroundColor: '#E1F5FE', borderWidth: 2, borderColor: 'transparent', shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 3, elevation: 1 },
+  timeBtnActive: { backgroundColor: '#0288D1', borderColor: '#01579B', shadowOpacity: 0.12, shadowRadius: 6, elevation: 3 },
+  timeBtnText: { color: '#0288D1', fontWeight: '700', fontSize: 14, letterSpacing: 0.2 },
+  timeBtnTextActive: { color: '#fff' },
+  statLabel: { fontSize: 12, color: '#0277BD', fontWeight: '600', letterSpacing: 0.2 },
+  statValue: { fontSize: 18, fontWeight: '800', color: '#01579B', marginTop: 4, letterSpacing: 0.2 },
+  statBlock: { width: '33%', marginBottom: 10 },
+  shareBtn: { backgroundColor: '#0288D1', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, alignSelf: 'flex-start', marginTop: 8, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 4, elevation: 2 },
+  shareBtnText: { color: '#fff', fontSize: 13, fontWeight: '700', letterSpacing: 0.3 },
+  noteHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 },
+  previewToggleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  previewToggleLabel: { fontSize: 13, color: '#01579B', marginRight: 6, fontWeight: '600' },
+  previewBox: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 14, marginTop: 8, borderWidth: 1, borderColor: '#E3F2FD' }
 });
 Object.assign(styles, {
-  filterChipRow:{ flexDirection:'row', marginBottom:8 },
-  filterChip:{ backgroundColor:'#0288D1', paddingHorizontal:12, paddingVertical:6, borderRadius:20 },
-  filterChipText:{ color:'#fff', fontSize:12, fontWeight:'600' }
+  filterChipRow: { flexDirection: 'row', marginBottom: 12, flexWrap: 'wrap' },
+  filterChip: { backgroundColor: '#0288D1', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 24, marginRight: 8, marginBottom: 8, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 4, elevation: 2 },
+  filterChipText: { color: '#fff', fontSize: 13, fontWeight: '700', letterSpacing: 0.3 }
 });
 Object.assign(styles, {
-  rangeLabel:{ fontSize:12, color:'#01579B', marginBottom:6 },
-  rangeBtn:{ backgroundColor:'#E1F5FE', padding:10, borderRadius:8, marginTop:4 },
-  rangeBtnText:{ color:'#01579B', fontWeight:'600' }
+  rangeLabel: { fontSize: 14, color: '#01579B', marginBottom: 8, fontWeight: '600', letterSpacing: 0.2 },
+  rangeBtn: { backgroundColor: '#E1F5FE', padding: 14, borderRadius: 12, marginTop: 6, borderWidth: 2, borderColor: '#B3E5FC', shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 3, elevation: 1 },
+  rangeBtnText: { color: '#01579B', fontWeight: '700', fontSize: 15, letterSpacing: 0.2 }
 });

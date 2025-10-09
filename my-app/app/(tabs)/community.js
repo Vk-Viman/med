@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
-import { View, Text, StyleSheet, FlatList, TextInput, Button, Alert, ScrollView, TouchableOpacity, Modal, Pressable, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, FlatList, TextInput, Button, Alert, ScrollView, TouchableOpacity, Modal, Pressable, ActivityIndicator, Animated } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { db, auth } from "../../firebase/firebaseConfig";
 import { collection, doc, addDoc, getDoc, getDocs, setDoc, query, where, orderBy, serverTimestamp, updateDoc, increment, limit, onSnapshot, startAfter, deleteDoc } from "firebase/firestore";
 import { inboxAdd } from '../../src/services/inbox';
@@ -12,6 +14,9 @@ import { useTheme } from "../../src/theme/ThemeProvider";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { subscribeAdminConfig } from '../../src/services/config';
 import { safeSnapshot, trackSubscription } from '../../src/utils/safeSnapshot';
+import GradientCard from "../../src/components/GradientCard";
+import AnimatedButton from "../../src/components/AnimatedButton";
+import EmptyState from "../../src/components/EmptyState";
 
 export default function CommunityScreen() {
   const { theme } = useTheme();
@@ -947,16 +952,55 @@ export default function CommunityScreen() {
         </>
       )}
 
-      <Text style={styles.section}>Anonymous Board</Text>
-      <View style={styles.postRow}>
-        <TextInput style={styles.input} value={message} onChangeText={setMessage} placeholder="Share your thoughts anonymously..." placeholderTextColor={theme.textMuted} />
-        <Button title="Post" onPress={submitPost} />
-      </View>
+      <Text style={styles.section}>
+        <Ionicons name="people-outline" size={20} color={theme.text} /> Community Board
+      </Text>
+      <GradientCard colors={['#E1F5FE', '#F3E5F5']} style={{ marginBottom: 16, padding: 16 }}>
+        <View style={styles.postInputContainer}>
+          <View style={styles.avatarCircle}>
+            <Ionicons name="person" size={20} color="#0288D1" />
+          </View>
+          <TextInput 
+            style={styles.modernInput} 
+            value={message} 
+            onChangeText={setMessage} 
+            placeholder="Share your journey anonymously..." 
+            placeholderTextColor={theme.textMuted}
+            multiline
+            maxLength={cfg.communityMaxLength || 300}
+          />
+        </View>
+        <View style={styles.postActions}>
+          <Text style={styles.charCount}>{message.length}/{cfg.communityMaxLength || 300}</Text>
+          <AnimatedButton 
+            onPress={submitPost} 
+            disabled={!message.trim() || isBanned}
+            hapticStyle="medium"
+          >
+            <LinearGradient
+              colors={message.trim() && !isBanned ? ['#0288D1', '#01579B'] : ['#CFD8DC', '#B0BEC5']}
+              style={styles.postButton}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <Ionicons name="send" size={18} color="#fff" />
+              <Text style={styles.postButtonText}>Share</Text>
+            </LinearGradient>
+          </AnimatedButton>
+        </View>
+      </GradientCard>
       <View>
         {loadingPosts ? (
-          <Text style={{ color: theme.textMuted }}>Loading posts…</Text>
+          <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+            <ActivityIndicator size="large" color={theme.primary} />
+            <Text style={{ color: theme.textMuted, marginTop: 12 }}>Loading community posts…</Text>
+          </View>
         ) : posts.length === 0 ? (
-          <Text style={{ color: theme.textMuted }}>No posts yet. Be the first!</Text>
+          <EmptyState
+            icon="chatbubbles-outline"
+            title="No posts yet"
+            subtitle="Be the first to share your mindfulness journey with the community!"
+          />
         ) : (
           <FlatList
             data={posts}
@@ -1101,27 +1145,235 @@ export default function CommunityScreen() {
   );
 }
 const createStyles = (colors) => StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: colors.bg },
-  title: { fontSize: 24, fontWeight: "800", marginBottom: 8, color: colors.text },
-  section: { marginTop: 12, fontWeight: "700", color: colors.textMuted },
-  card: { padding: 12, backgroundColor: colors.card, borderRadius: 12, marginRight: 10, width: 220 },
-  cardTitle: { fontWeight: "700", marginBottom: 4, color: colors.text },
-  cardText: { color: colors.textMuted, marginBottom: 8 },
-  meta: { color: colors.textMuted, fontSize: 12, marginBottom: 6 },
-  badge: { padding: 10, backgroundColor: colors.bg === '#0B1722' ? '#1b2b3b' : '#E3F2FD', borderRadius: 20, marginRight: 8 },
-  postRow: { flexDirection: "row", alignItems: "center", marginVertical: 8 },
-  input: { flex: 1, borderWidth: 1, borderColor: colors.bg === '#0B1722' ? '#345' : '#ddd', borderRadius: 8, padding: 8, marginRight: 8, color: colors.text, backgroundColor: colors.bg === '#0B1722' ? '#0F1E2C' : '#ffffff' },
-  post: { backgroundColor: colors.card, padding: 10, borderRadius: 10, marginVertical: 6 },
-  anon: { color: colors.textMuted, fontSize: 12, marginBottom: 4 },
-  progressBar: { height: 6, backgroundColor: colors.bg === '#0B1722' ? '#253445' : '#E3F2FD', borderRadius: 4, overflow: 'hidden', marginBottom: 6 },
-  progressFill: { height: '100%', backgroundColor: colors.primary || '#0288D1' },
-  joinedTxt: { color: colors.textMuted, fontSize: 12 },
-  flag: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, backgroundColor: colors.bg === '#0B1722' ? '#1b2b3b' : '#E0F7FA', borderRadius: 12, marginBottom: 6 },
-  flagTxt: { color: colors.textMuted, fontSize: 11 },
-  feedItem: { backgroundColor: colors.bg === '#0B1722' ? '#152231' : '#F5FBFF', padding: 8, borderRadius: 8, marginTop: 6 },
-  feedTxt: { color: colors.text },
-  teamItem: { backgroundColor: colors.bg === '#0B1722' ? '#10202f' : '#E8F6FF', padding: 6, borderRadius: 8, marginTop: 4 },
-  teamTxt: { color: colors.text },
-  topBtn: { position: 'absolute', right: 16, bottom: 16, backgroundColor: colors.primary || '#0288D1', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 6, shadowOffset: { width:0, height:2 }, elevation: 3 },
-  topBtnText: { color: '#fff', fontWeight: '800' }
+  container: { 
+    flex: 1, 
+    padding: 20, 
+    backgroundColor: colors.bg 
+  },
+  title: { 
+    fontSize: 28, 
+    fontWeight: "800", 
+    marginBottom: 12, 
+    color: colors.text,
+    letterSpacing: 0.5,
+  },
+  section: { 
+    marginTop: 16, 
+    fontSize: 18,
+    fontWeight: "700", 
+    color: colors.text,
+    marginBottom: 10,
+  },
+  card: { 
+    padding: 16, 
+    backgroundColor: colors.card, 
+    borderRadius: 16, 
+    marginRight: 12, 
+    width: 240,
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: colors.bg === '#0B1722' ? '#263238' : '#E1F5FE',
+  },
+  cardTitle: { 
+    fontWeight: "800", 
+    marginBottom: 6, 
+    color: colors.text,
+    fontSize: 16,
+  },
+  cardText: { 
+    color: colors.textMuted, 
+    marginBottom: 10,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  meta: { 
+    color: colors.textMuted, 
+    fontSize: 12, 
+    marginBottom: 8,
+    fontWeight: "600",
+  },
+  badge: { 
+    paddingHorizontal: 14, 
+    paddingVertical: 10,
+    backgroundColor: colors.bg === '#0B1722' ? '#1b2b3b' : '#E3F2FD', 
+    borderRadius: 24, 
+    marginRight: 10,
+    borderWidth: 1.5,
+    borderColor: colors.bg === '#0B1722' ? '#37474F' : '#B3E5FC',
+  },
+  postInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 12,
+  },
+  avatarCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E1F5FE',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#0288D1',
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  modernInput: {
+    flex: 1,
+    minHeight: 50,
+    maxHeight: 120,
+    borderWidth: 2,
+    borderColor: '#B3E5FC',
+    borderRadius: 14,
+    padding: 12,
+    color: colors.text,
+    backgroundColor: '#fff',
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  postActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  charCount: {
+    fontSize: 12,
+    color: colors.textMuted,
+    fontWeight: '600',
+  },
+  postButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    shadowColor: '#0288D1',
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  postButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  postRow: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    marginVertical: 10 
+  },
+  input: { 
+    flex: 1, 
+    borderWidth: 2, 
+    borderColor: colors.bg === '#0B1722' ? '#37474F' : '#B3E5FC', 
+    borderRadius: 12, 
+    padding: 12, 
+    marginRight: 10, 
+    color: colors.text, 
+    backgroundColor: colors.bg === '#0B1722' ? '#101D2B' : '#ffffff',
+    fontSize: 15,
+  },
+  post: { 
+    backgroundColor: colors.card, 
+    padding: 14, 
+    borderRadius: 14, 
+    marginVertical: 8,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+    borderWidth: 1,
+    borderColor: colors.bg === '#0B1722' ? '#263238' : '#E1F5FE',
+  },
+  anon: { 
+    color: colors.textMuted, 
+    fontSize: 13, 
+    marginBottom: 6,
+    fontWeight: "600",
+  },
+  progressBar: { 
+    height: 8, 
+    backgroundColor: colors.bg === '#0B1722' ? '#263238' : '#E1F5FE', 
+    borderRadius: 6, 
+    overflow: 'hidden', 
+    marginBottom: 8 
+  },
+  progressFill: { 
+    height: '100%', 
+    backgroundColor: colors.primary || '#0288D1' 
+  },
+  joinedTxt: { 
+    color: colors.textMuted, 
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  flag: { 
+    alignSelf: 'flex-start', 
+    paddingHorizontal: 10, 
+    paddingVertical: 6, 
+    backgroundColor: colors.bg === '#0B1722' ? '#1b2b3b' : '#FFF3E0', 
+    borderRadius: 14, 
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: colors.bg === '#0B1722' ? '#37474F' : '#FFE0B2',
+  },
+  flagTxt: { 
+    color: colors.bg === '#0B1722' ? colors.textMuted : '#E65100', 
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  feedItem: { 
+    backgroundColor: colors.bg === '#0B1722' ? '#152231' : '#F0F9FF', 
+    padding: 10, 
+    borderRadius: 10, 
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: colors.bg === '#0B1722' ? '#263238' : '#DBEAFE',
+  },
+  feedTxt: { 
+    color: colors.text,
+    fontSize: 13,
+  },
+  teamItem: { 
+    backgroundColor: colors.bg === '#0B1722' ? '#10202f' : '#E8F6FF', 
+    padding: 8, 
+    borderRadius: 10, 
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: colors.bg === '#0B1722' ? '#263238' : '#BFDBFE',
+  },
+  teamTxt: { 
+    color: colors.text,
+    fontWeight: "600",
+  },
+  topBtn: { 
+    position: 'absolute', 
+    right: 16, 
+    bottom: 16, 
+    backgroundColor: colors.primary || '#0288D1', 
+    paddingHorizontal: 16, 
+    paddingVertical: 12, 
+    borderRadius: 24, 
+    shadowColor: '#000', 
+    shadowOpacity: 0.25, 
+    shadowRadius: 8, 
+    shadowOffset: { width:0, height:4 }, 
+    elevation: 4 
+  },
+  topBtnText: { 
+    color: '#fff', 
+    fontWeight: '800',
+    fontSize: 14,
+  }
 });

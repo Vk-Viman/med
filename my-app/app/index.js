@@ -2,6 +2,7 @@
 import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Pressable, ScrollView, RefreshControl, Animated, AccessibilityInfo, InteractionManager, findNodeHandle } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { LinearGradient } from 'expo-linear-gradient';
 import PrimaryButton from "../src/components/PrimaryButton";
 import { colors, spacing, radius, shadow } from "../src/theme";
 import { useTheme } from "../src/theme/ThemeProvider";
@@ -23,8 +24,10 @@ import { useFocusEffect } from 'expo-router';
 import { nextMinuteThreshold, nextStreakThreshold, progressTowards, loadAdminBadgesIntoCatalog } from '../src/constants/badges';
 import { listAdminBadgesForUser } from '../src/services/admin';
 import { ensureWeeklyDigestSummary } from '../src/services/weeklyDigest';
-// Locale detection without expo-localization
 import { getCachedAggStats, setCachedAggStats } from '../src/utils/statsCache';
+import GradientCard from "../src/components/GradientCard";
+import AnimatedButton from "../src/components/AnimatedButton";
+import ProgressRing from "../src/components/ProgressRing";
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -408,6 +411,63 @@ export default function HomeScreen() {
           <Text style={[styles.greetText, { color: theme.text }]}>{greeting()}{displayName? `, ${displayName.split(' ')[0]}`:''}</Text>
           <Text accessibilityLabel='Guided Meditation and Stress Relief' style={[styles.tagline, { color: theme.textMuted }]}>Guided Meditation & Stress Relief</Text>
         </View>
+
+        {/* Hero Section with Progress Rings */}
+        <GradientCard 
+          colors={['#4FC3F7', '#0288D1', '#01579B']} 
+          style={styles.heroCard}
+          gradientProps={{ start: { x: 0, y: 0 }, end: { x: 1, y: 1 } }}
+        >
+          <Text style={styles.heroQuote}>"Peace comes from within. Do not seek it without."</Text>
+          <Text style={styles.heroAuthor}>— Buddha</Text>
+          
+          <View style={styles.progressSection}>
+            <View style={styles.progressItem}>
+              <ProgressRing
+                progress={Math.min(100, (todayMinutes / DAILY_GOAL_MIN) * 100)}
+                size={90}
+                strokeWidth={8}
+                color="#FFFFFF"
+                backgroundColor="rgba(255,255,255,0.3)"
+                animated
+              />
+              <View style={styles.progressLabel}>
+                <Text style={styles.progressValue}>{todayMinutes}</Text>
+                <Text style={styles.progressUnit}>min today</Text>
+              </View>
+            </View>
+            
+            <View style={styles.progressItem}>
+              <ProgressRing
+                progress={Math.min(100, (summary.streak / 30) * 100)}
+                size={90}
+                strokeWidth={8}
+                color="#FFA726"
+                backgroundColor="rgba(255,255,255,0.3)"
+                animated
+              />
+              <View style={styles.progressLabel}>
+                <Text style={styles.progressValue}>{summary.streak}</Text>
+                <Text style={styles.progressUnit}>day streak</Text>
+              </View>
+            </View>
+            
+            <View style={styles.progressItem}>
+              <ProgressRing
+                progress={Math.min(100, ((aggStats.totalMinutes || 0) / 1000) * 100)}
+                size={90}
+                strokeWidth={8}
+                color="#66BB6A"
+                backgroundColor="rgba(255,255,255,0.3)"
+                animated
+              />
+              <View style={styles.progressLabel}>
+                <Text style={styles.progressValue}>{Math.round((aggStats.totalMinutes || 0))}</Text>
+                <Text style={styles.progressUnit}>total min</Text>
+              </View>
+            </View>
+          </View>
+        </GradientCard>
         
   <Text ref={todayHeaderRef} style={[styles.sectionLabel,{ color: theme.textMuted }]} accessibilityRole='header' accessibilityLabel='Today'>TODAY</Text>
   <Card style={[styles.snapshotCard, { backgroundColor: (mode === 'dark' ? moodTintDark(summary.latest?.mood) : moodTint(summary.latest?.mood)) }]}> 
@@ -452,8 +512,36 @@ export default function HomeScreen() {
         <View style={styles.primaryCtaWrap}>
           <Text style={[styles.sectionLabel,{ color: theme.textMuted }]}>FOCUS</Text>
           <View style={{ flexDirection:'row', gap:12 }}>
-            <PrimaryButton title="Start Meditation" onPress={()=> navigate('/meditation','medium')} left={<Ionicons name='play-circle' size={18} color='#fff' />} />
-            <PrimaryButton title="Sessions" onPress={()=> navigate('/sessions','light')} left={<Ionicons name='time-outline' size={18} color='#fff' />} />
+            <AnimatedButton 
+              onPress={()=> navigate('/meditation','medium')}
+              hapticStyle="medium"
+              style={{ flex: 1 }}
+            >
+              <LinearGradient
+                colors={['#0288D1', '#01579B']}
+                style={styles.gradientButton}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <Ionicons name='play-circle' size={20} color='#fff' />
+                <Text style={styles.gradientButtonText}>Start Meditation</Text>
+              </LinearGradient>
+            </AnimatedButton>
+            <AnimatedButton 
+              onPress={()=> navigate('/sessions','light')}
+              hapticStyle="light"
+              style={{ flex: 1 }}
+            >
+              <LinearGradient
+                colors={['#42A5F5', '#1E88E5']}
+                style={styles.gradientButton}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <Ionicons name='time-outline' size={20} color='#fff' />
+                <Text style={styles.gradientButtonText}>Sessions</Text>
+              </LinearGradient>
+            </AnimatedButton>
           </View>
         </View>
 
@@ -576,6 +664,86 @@ const styles = StyleSheet.create({
   greetWrap:{ marginBottom: spacing.md },
   greetText:{ fontSize:24, fontWeight:'800' },
   tagline:{ fontSize:14, fontWeight:'600', opacity:0.85 },
+  
+  // Hero Card
+  heroCard: {
+    marginBottom: spacing.lg,
+    padding: 24,
+    shadowColor: '#0288D1',
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+  },
+  heroQuote: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+    lineHeight: 26,
+    letterSpacing: 0.3,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  heroAuthor: {
+    color: '#B3E5FC',
+    fontSize: 14,
+    fontWeight: '600',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  progressSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  progressItem: {
+    alignItems: 'center',
+  },
+  progressLabel: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  progressValue: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  progressUnit: {
+    color: '#E1F5FE',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+    marginTop: 2,
+  },
+  
+  // Gradient Buttons
+  gradientButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 14,
+    shadowColor: '#0288D1',
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  gradientButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
   snapshotCard:{ padding: spacing.md, borderRadius:18, marginBottom: spacing.lg, position:'relative' },
   sectionLabel:{ fontSize:11, fontWeight:'700', letterSpacing:1, marginBottom:6, opacity:0.8 },
   loadingRow:{ flexDirection:'row', alignItems:'center' },

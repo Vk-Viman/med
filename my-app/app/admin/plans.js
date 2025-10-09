@@ -42,6 +42,6 @@ export default function AdminPlans(){
   );
 }
 const styles = StyleSheet.create({
-  inp:{ height:44, borderRadius:10, paddingHorizontal:10 },
-  row:{ padding:8, borderRadius:12 }
+  inp:{ height:52, borderRadius:14, paddingHorizontal:16, fontSize:15, borderWidth:2, borderColor:'rgba(0,0,0,0.1)', shadowColor:'#000', shadowOpacity:0.04, shadowRadius:4, elevation:1 },
+  row:{ padding:14, borderRadius:14, shadowColor:'#000', shadowOpacity:0.06, shadowRadius:6, elevation:2, borderWidth:1, borderColor:'rgba(0,0,0,0.05)' }
 });

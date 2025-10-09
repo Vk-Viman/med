@@ -10,6 +10,9 @@ import { doc, getDoc } from 'firebase/firestore';
 import { getBadgeMeta, nextMinuteThreshold, nextStreakThreshold, progressTowards, loadAdminBadgesIntoCatalog } from '../src/constants/badges';
 import { listAdminBadgesForUser } from '../src/services/admin';
 import { getCachedAggStats, setCachedAggStats } from '../src/utils/statsCache';
+import { Ionicons } from '@expo/vector-icons';
+import GradientCard from '../src/components/GradientCard';
+import EmptyState from '../src/components/EmptyState';
 
 export default function AchievementsScreen(){
   const { theme } = useTheme();
@@ -104,21 +107,33 @@ export default function AchievementsScreen(){
   return (
     <GradientBackground>
       <SafeAreaView style={styles.container}>
-        <Text
-          ref={announcerRef}
-          accessibilityRole='header'
-          accessibilityLabel='Achievements'
-          style={[styles.header,{ color: theme.text }]}
-        >
-          Achievements
-        </Text>
+        {/* Enhanced Header */}
+        <View style={styles.headerContainer}>
+          <View style={styles.iconBadge}>
+            <Ionicons name="trophy" size={28} color="#FFA726" />
+          </View>
+          <View style={{ flex: 1, marginLeft: 16 }}>
+            <Text
+              ref={announcerRef}
+              accessibilityRole='header'
+              accessibilityLabel='Achievements'
+              style={[styles.header,{ color: theme.text }]}
+            >
+              Achievements
+            </Text>
+            <Text style={[styles.subtitle, { color: theme.textMuted }]}>
+              Your badges and milestones
+            </Text>
+          </View>
+        </View>
         {loading ? (
           <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
         ) : items.length === 0 ? (
-          <Card style={styles.centerCard}>
-            <Text accessibilityRole='header' style={[styles.emptyTitle,{ color: theme.text }]}>No badges yet</Text>
-            <Text accessibilityLabel='Keep meditating and logging moods to unlock achievements.' style={[styles.emptySub,{ color: theme.textMuted }]}>Keep meditating and logging moods to unlock achievements.</Text>
-          </Card>
+          <EmptyState
+            icon="trophy-outline"
+            title="No badges yet"
+            subtitle="Keep meditating and logging moods to unlock achievements"
+          />
         ) : (
           <FlatList
             data={items}
@@ -193,17 +208,118 @@ function BadgeDetailsModal({ visible, onClose, badge, stats, theme }){
 }
 
 const styles = StyleSheet.create({
-  container:{ flex:1, paddingHorizontal:16, paddingTop:12 },
-  header:{ fontSize:22, fontWeight:'800', marginBottom:12 },
-  row:{ flexDirection:'row', alignItems:'center', padding:12, borderRadius:14 },
-  emoji:{ fontSize:22, marginRight:12 },
-  title:{ fontSize:14, fontWeight:'800' },
-  subtitle:{ fontSize:12, fontWeight:'600' },
-  center:{ flex:1, alignItems:'center', justifyContent:'center' },
-  centerCard:{ padding:16, borderRadius:14, alignItems:'center' },
-  emptyTitle:{ fontSize:16, fontWeight:'800', marginBottom:4 },
-  emptySub:{ fontSize:12, fontWeight:'600', textAlign:'center' },
-  modalBackdrop:{ flex:1, backgroundColor:'rgba(0,0,0,0.4)', alignItems:'center', justifyContent:'center', padding:20 },
-  modalCard:{ width: '100%', maxWidth: 420, borderRadius: 16, padding: 16 },
-  closeBtn:{ alignSelf:'center', marginTop: 12, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20 }
+  container:{ 
+    flex:1, 
+    paddingHorizontal:20, 
+    paddingTop:16 
+  },
+  header:{ 
+    fontSize:28, 
+    fontWeight:'800', 
+    marginBottom:20,
+    letterSpacing: 0.5,
+  },
+  row:{ 
+    flexDirection:'row', 
+    alignItems:'center', 
+    padding:16, 
+    borderRadius:16,
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+  emoji:{ 
+    fontSize:36, 
+    marginRight:16 
+  },
+  title:{ 
+    fontSize:17, 
+    fontWeight:'800',
+    letterSpacing: 0.3,
+  },
+  headerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  iconBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: '#FFF3E0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#FFA726',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  subtitle:{ 
+    fontSize:13, 
+    fontWeight:'600',
+    marginTop: 2,
+  },
+  center:{ 
+    flex:1, 
+    alignItems:'center', 
+    justifyContent:'center' 
+  },
+  centerCard:{ 
+    padding:28, 
+    borderRadius:20, 
+    alignItems:'center',
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  emptyTitle:{ 
+    fontSize:20, 
+    fontWeight:'800', 
+    marginBottom:8,
+    letterSpacing: 0.3,
+  },
+  emptySub:{ 
+    fontSize:15, 
+    fontWeight:'500', 
+    textAlign:'center',
+    lineHeight: 22,
+  },
+  modalBackdrop:{ 
+    flex:1, 
+    backgroundColor:'rgba(0,0,0,0.5)', 
+    alignItems:'center', 
+    justifyContent:'center', 
+    padding:24 
+  },
+  modalCard:{ 
+    width: '100%', 
+    maxWidth: 420, 
+    borderRadius: 24, 
+    padding: 24,
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 5,
+  },
+  closeBtn:{ 
+    alignSelf:'center', 
+    marginTop: 16, 
+    paddingHorizontal: 24, 
+    paddingVertical: 12, 
+    borderRadius: 24,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  }
 });

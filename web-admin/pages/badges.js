@@ -35,37 +35,56 @@ export default function Badges(){
     catch(e){ console.error(e);} finally{ setBusy(false);} };
   return (
     <Protected>
-      <h1 className="text-xl font-bold mb-4">Badges</h1>
-      <form onSubmit={save} className="mb-6 p-4 border rounded bg-white grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">🏆 Badges</h1>
+        <p className="text-gray-600">Create and manage achievement badges</p>
+      </div>
+      
+      <form onSubmit={save} className="mb-8 p-6 rounded-xl bg-white shadow-lg border-2 border-amber-100 grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm mb-1">Emoji</label>
-          <input className="w-full border rounded px-3 py-2" value={form.emoji} onChange={e=> setForm(f=> ({...f,emoji:e.target.value}))} placeholder="🏅" />
+          <label className="block text-sm font-semibold text-gray-700 mb-2">Emoji Icon</label>
+          <input className="input-field text-3xl text-center" value={form.emoji} onChange={e=> setForm(f=> ({...f,emoji:e.target.value}))} placeholder="🏅" />
+          <p className="text-xs text-gray-500 mt-1">Pick an emoji to represent this badge</p>
         </div>
         <div>
-          <label className="block text-sm mb-1">Name</label>
-          <input className="w-full border rounded px-3 py-2" value={form.name} onChange={e=> setForm(f=> ({...f,name:e.target.value}))} required />
+          <label className="block text-sm font-semibold text-gray-700 mb-2">Badge Name *</label>
+          <input className="input-field" value={form.name} onChange={e=> setForm(f=> ({...f,name:e.target.value}))} placeholder="First Meditation" required />
         </div>
         <div className="md:col-span-2">
-          <label className="block text-sm mb-1">Description</label>
-          <textarea className="w-full border rounded px-3 py-2" value={form.description} onChange={e=> setForm(f=> ({...f,description:e.target.value}))} rows={3} />
+          <label className="block text-sm font-semibold text-gray-700 mb-2">Description</label>
+          <textarea className="input-field" value={form.description} onChange={e=> setForm(f=> ({...f,description:e.target.value}))} rows={3} placeholder="Complete your first meditation session" />
         </div>
-        <div className="flex gap-2 items-end">
-          <button disabled={busy} className="px-4 py-2 bg-blue-600 text-white rounded">{form.id? 'Update' : 'Create'}</button>
-          {form.id? <button type="button" className="px-3 py-2 bg-gray-200 rounded" onClick={resetForm}>Cancel</button> : null}
+        <div className="md:col-span-2 flex gap-3">
+          <button disabled={busy} className="btn-primary">{form.id? '✏️ Update Badge' : '✨ Create Badge'}</button>
+          {form.id? <button type="button" className="btn-secondary" onClick={resetForm}>Cancel</button> : null}
         </div>
       </form>
-      <div className="space-y-2">
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {items.map(it=> (
-          <div key={it.id} className="p-3 bg-white border rounded">
-            <div className="font-semibold">{it.emoji? `${it.emoji} `:''}{it.name || it.id}</div>
-            <div className="text-sm">{it.description || ''}</div>
-            <div className="mt-2 flex gap-2">
-              <button onClick={()=> edit(it)} className="px-3 py-1 bg-gray-200 rounded text-sm">Edit</button>
-              <button onClick={()=> remove(it.id)} className="px-3 py-1 bg-red-600 text-white rounded text-sm">Delete</button>
+          <div key={it.id} className="bg-gradient-to-br from-amber-50 to-yellow-50 border-2 border-amber-200 rounded-xl p-5 hover:shadow-xl transition-all transform hover:scale-105">
+            <div className="text-center mb-3">
+              <div className="text-6xl mb-2">{it.emoji || '🏅'}</div>
+              <h3 className="text-lg font-bold text-gray-900">{it.name || it.id}</h3>
+            </div>
+            {it.description && (
+              <p className="text-sm text-gray-700 text-center mb-4 min-h-[3rem]">{it.description}</p>
+            )}
+            <div className="flex gap-2 justify-center">
+              <button onClick={()=> edit(it)} className="btn-secondary text-xs py-1">✏️ Edit</button>
+              <button onClick={()=> remove(it.id)} className="bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-3 rounded-lg text-xs transition-colors">🗑️ Delete</button>
             </div>
           </div>
         ))}
       </div>
+      
+      {items.length === 0 && (
+        <div className="text-center py-16 bg-white rounded-xl border-2 border-gray-200">
+          <div className="text-6xl mb-4">🏆</div>
+          <div className="text-xl font-bold text-gray-900 mb-2">No Badges Yet</div>
+          <div className="text-gray-600">Create your first achievement badge above</div>
+        </div>
+      )}
     </Protected>
   );
 }

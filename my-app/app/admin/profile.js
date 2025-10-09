@@ -154,11 +154,11 @@ export default function AdminProfile(){
 }
 
 const createStyles = (theme) => StyleSheet.create({
-  container:{ flex:1, backgroundColor: theme.bg, padding:16 },
-  headerRow:{ flexDirection:'row', alignItems:'center', marginBottom:16, gap:12 },
-  avatar:{ width:56, height:56, borderRadius:28 },
-  name:{ fontSize:18, fontWeight:'800' },
-  card:{ backgroundColor: theme.card, padding:12, borderRadius:12, marginBottom:12 },
-  row:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingVertical:8 },
-  rowLabel:{ fontSize:14, fontWeight:'700' },
+  container:{ flex:1, backgroundColor: theme.bg, padding:20 },
+  headerRow:{ flexDirection:'row', alignItems:'center', marginBottom:20, gap:16 },
+  avatar:{ width:72, height:72, borderRadius:36, borderWidth:3, borderColor: theme.primary||'#0288D1' },
+  name:{ fontSize:22, fontWeight:'800', letterSpacing:0.3 },
+  card:{ backgroundColor: theme.card, padding:18, borderRadius:16, marginBottom:16, shadowColor:'#000', shadowOpacity:0.08, shadowRadius:8, elevation:3, borderWidth:1, borderColor:'rgba(0,0,0,0.05)' },
+  row:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingVertical:12, borderBottomWidth:1, borderBottomColor:'rgba(0,0,0,0.05)' },
+  rowLabel:{ fontSize:15, fontWeight:'700', letterSpacing:0.2 },
 });

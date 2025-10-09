@@ -111,10 +111,10 @@ export default function AdminBadges(){
 }
 
 const styles = StyleSheet.create({
-  title:{ fontSize:22, fontWeight:'800', marginBottom:12 },
-  subtitle:{ fontSize:16, fontWeight:'800', marginVertical:12 },
-  card:{ padding:12, borderRadius:12, marginBottom:12 },
-  label:{ fontSize:12, fontWeight:'700', marginTop:6 },
-  input:{ borderWidth:1, borderColor:'#90CAF9', borderRadius:10, paddingHorizontal:10, height:40, backgroundColor:'#ffffffCC' },
-  rowTitle:{ fontSize:14, fontWeight:'800' },
+  title:{ fontSize:28, fontWeight:'800', marginBottom:18, letterSpacing:0.3 },
+  subtitle:{ fontSize:20, fontWeight:'800', marginVertical:16, letterSpacing:0.2 },
+  card:{ padding:18, borderRadius:16, marginBottom:16, shadowColor:'#000', shadowOpacity:0.08, shadowRadius:8, elevation:3, borderWidth:1, borderColor:'rgba(0,0,0,0.05)' },
+  label:{ fontSize:14, fontWeight:'700', marginTop:10, marginBottom:6, letterSpacing:0.2 },
+  input:{ borderWidth:2, borderColor:'#90CAF9', borderRadius:12, paddingHorizontal:14, height:48, backgroundColor:'#ffffffCC', fontSize:15, shadowColor:'#000', shadowOpacity:0.04, shadowRadius:4, elevation:1 },
+  rowTitle:{ fontSize:16, fontWeight:'800', letterSpacing:0.2 },
 });

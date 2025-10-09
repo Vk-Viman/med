@@ -1,6 +1,9 @@
 ﻿import React, { useEffect, useMemo, useState, useRef } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import MeditationList from "../src/components/MeditationList";
 import PlayerControls from "../src/components/PlayerControls";
 import BackgroundSoundSwitcher from "../src/components/BackgroundSoundSwitcher";
@@ -13,6 +16,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams } from 'expo-router';
 import { Alert } from 'react-native';
 import { getMeditationById } from '../src/services/meditations';
+import GradientCard from "../src/components/GradientCard";
+import ProgressRing from "../src/components/ProgressRing";
 
 export default function MeditationPlayerScreen() {
   const [selectedMeditation, setSelectedMeditation] = useState(null);
@@ -26,6 +31,43 @@ export default function MeditationPlayerScreen() {
   const lastMedKey = `@med:lastSelection:${uid}`;
   const lastBgKey = `@med:lastBg:${uid}`;
   const favKey = `@med:favorites:${uid}`;
+  
+  // Breathing circle animation
+  const breatheAnim = useRef(new Animated.Value(0)).current;
+  const [isBreathing, setIsBreathing] = useState(false);
+  
+  useEffect(() => {
+    if (!selectedMeditation) return;
+    
+    // Start breathing animation
+    setIsBreathing(true);
+    const breatheCycle = Animated.loop(
+      Animated.sequence([
+        // Inhale
+        Animated.timing(breatheAnim, {
+          toValue: 1,
+          duration: 4000,
+          useNativeDriver: true,
+        }),
+        // Hold
+        Animated.delay(1000),
+        // Exhale
+        Animated.timing(breatheAnim, {
+          toValue: 0,
+          duration: 4000,
+          useNativeDriver: true,
+        }),
+        // Hold
+        Animated.delay(1000),
+      ])
+    );
+    breatheCycle.start();
+    
+    return () => {
+      breatheCycle.stop();
+      setIsBreathing(false);
+    };
+  }, [selectedMeditation]);
 
   // Subscribe to today's total minutes so users see immediate progress
   useEffect(() => {
@@ -145,30 +187,105 @@ export default function MeditationPlayerScreen() {
         onScroll={(e)=>{ try { setShowTop((e?.nativeEvent?.contentOffset?.y||0) > 200); } catch {} }}
         scrollEventThrottle={16}
       >
-        <Text style={styles.title}>Meditation Player</Text>
-        <View style={styles.todayPill}>
-          <Text style={styles.todayLabel}>Today's minutes</Text>
-          <Text style={styles.todayValue}>{todayMinutes.toFixed(1)}m</Text>
+        <View style={styles.header}>
+          <View style={styles.iconBadge}>
+            <Ionicons name="leaf" size={28} color="#66BB6A" />
+          </View>
+          <View style={{ flex: 1, marginLeft: 16 }}>
+            <Text style={styles.title}>Meditation</Text>
+            <Text style={styles.subtitle}>Find your inner peace</Text>
+          </View>
         </View>
+        
+        <GradientCard 
+          colors={['#66BB6A', '#43A047', '#2E7D32']} 
+          style={styles.todayCard}
+        >
+          <View style={styles.todayContent}>
+            <Text style={styles.todayLabel}>Today's Practice</Text>
+            <Text style={styles.todayValue}>{todayMinutes.toFixed(1)} min</Text>
+            <View style={styles.progressIndicator}>
+              <ProgressRing
+                progress={Math.min(100, (todayMinutes / 20) * 100)}
+                size={60}
+                strokeWidth={6}
+                color="#FFFFFF"
+                backgroundColor="rgba(255,255,255,0.3)"
+                animated
+              />
+              <View style={styles.progressLabel}>
+                <Text style={styles.progressPercent}>
+                  {Math.min(100, Math.round((todayMinutes / 20) * 100))}%
+                </Text>
+              </View>
+            </View>
+          </View>
+        </GradientCard>
         {selectedMeditation && (
-          <Text style={{ marginBottom: spacing.sm, color: colors.mutedText || '#455A64' }}>
-            Selected: {selectedMeditation?.title || '—'}
-          </Text>
+          <GradientCard 
+            colors={['#E1F5FE', '#B3E5FC', '#81D4FA']} 
+            style={styles.selectedCard}
+          >
+            {/* Breathing circle animation */}
+            {isBreathing && (
+              <View style={styles.breathingContainer}>
+                <Animated.View
+                  style={[
+                    styles.breathingCircle,
+                    {
+                      transform: [
+                        {
+                          scale: breatheAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0.8, 1.2],
+                          }),
+                        },
+                      ],
+                      opacity: breatheAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.4, 0.8],
+                      }),
+                    },
+                  ]}
+                />
+                <View style={styles.breathingCenter}>
+                  <Ionicons name="flower-outline" size={32} color="#fff" />
+                </View>
+              </View>
+            )}
+            
+            <View style={styles.selectedContent}>
+              <View style={styles.nowPlayingBadge}>
+                <Ionicons name="musical-notes" size={14} color="#0288D1" />
+                <Text style={styles.selectedLabel}>NOW PLAYING</Text>
+              </View>
+              <Text style={styles.selectedTitle}>{selectedMeditation?.title || '—'}</Text>
+              <View style={styles.categoryBadge}>
+                <Ionicons name="pricetag" size={12} color="#01579B" />
+                <Text style={styles.selectedCategory}>{selectedMeditation?.category || 'Meditation'}</Text>
+              </View>
+            </View>
+          </GradientCard>
         )}
         {favoriteMeds.length > 0 && (
-          <View style={{ marginBottom: spacing.sm }}>
-            <Text style={{ color: colors.mutedText || '#607D8B', fontWeight: '700', marginBottom: 6 }}>Your favorites</Text>
+          <View style={{ marginBottom: spacing.md }}>
+            <Text style={styles.sectionHeader}>⭐ Your Favorites</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {favoriteMeds.map(m => (
                 <TouchableOpacity key={m.id} onPress={() => setSelectedMeditation(m)} style={styles.favChip} accessibilityRole="button" accessibilityLabel={`Play favorite ${m.title}`}>
-                  <Text style={styles.favChipTxt}>★ {m.title}</Text>
+                  <Text style={styles.favChipEmoji}>★</Text>
+                  <Text style={styles.favChipTxt}>{m.title}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
           </View>
         )}
+        <Text style={styles.sectionHeader}>🎵 Browse Meditations</Text>
         <MeditationList onSelect={setSelectedMeditation} selected={selectedMeditation} />
-        <PlayerControls meditation={selectedMeditation} backgroundSound={backgroundSound} disabled={!selectedMeditation} accessibilityLabel={selectedMeditation? 'Play selected meditation' : 'Select a meditation to enable playback'} />
+        <View style={styles.playerSection}>
+          <PlayerControls meditation={selectedMeditation} backgroundSound={backgroundSound} disabled={!selectedMeditation} accessibilityLabel={selectedMeditation? 'Play selected meditation' : 'Select a meditation to enable playback'} />
+        </View>
+        <Text style={styles.sectionHeader}>🌊 Background Sounds</Text>
         <BackgroundSoundSwitcher value={backgroundSound} onChange={setBackgroundSound} />
       </ScrollView>
       {showTop && (
@@ -187,26 +304,218 @@ export default function MeditationPlayerScreen() {
 }
 const styles = StyleSheet.create({
   container: { flex: 1, padding: spacing.lg },
-  title: { fontSize: 24, fontWeight: "800", color: colors.text, marginBottom: spacing.sm },
-  todayPill: {
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  iconBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#E8F5E9',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#43A047',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  title: { 
+    fontSize: 24, 
+    fontWeight: "800", 
+    color: colors.text,
+    letterSpacing: 0.3,
+  },
+  subtitle: {
+    fontSize: 13,
+    color: colors.textMuted,
+    fontWeight: '500',
+    marginTop: 4,
+  },
+  todayCard: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    padding: spacing.lg,
     marginBottom: spacing.md,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
+    shadowColor: "#43A047",
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
+  todayContent: { flex: 1 },
+  todayLabel: { 
+    color: "#FFFFFF", 
+    fontWeight: "700",
+    fontSize: 14,
+    marginBottom: 6,
+    letterSpacing: 0.3,
+  },
+  todayValue: { 
+    color: "#FFFFFF", 
+    fontWeight: "800",
+    fontSize: 36,
+    letterSpacing: -0.5,
+  },
+  progressIndicator: {
+    marginTop: 12,
+  },
+  progressLabel: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  progressPercent: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  selectedCard: {
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    shadowColor: "#0288D1",
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+    minHeight: 160,
+  },
+  breathingContainer: {
+    position: 'absolute',
+    top: spacing.lg,
+    right: spacing.lg,
+    width: 80,
+    height: 80,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  breathingCircle: {
+    position: 'absolute',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#0288D1',
+  },
+  breathingCenter: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#0288D1',
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  selectedContent: {
+    flex: 1,
+    paddingRight: 100, // Space for breathing circle
+  },
+  nowPlayingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    gap: 6,
+    marginBottom: 12,
+    shadowColor: '#0288D1',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
-  todayLabel: { color: colors.mutedText || "#607D8B", fontWeight: "600" },
-  todayValue: { color: colors.primary || "#0288D1", fontWeight: "800" },
-  favChip: { paddingHorizontal: 10, paddingVertical: 8, backgroundColor: "#FFF3E0", borderRadius: 16, marginRight: 8, borderWidth: 1, borderColor: "#FFE0B2" },
-  favChipTxt: { color: "#E65100", fontWeight: "700" },
-  topBtn: { position: 'absolute', right: 16, bottom: 16, backgroundColor: colors.primary || '#0288D1', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 6, shadowOffset: { width:0, height:2 }, elevation: 3 },
-  topBtnText: { color: '#fff', fontWeight: '800' }
+  selectedLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#0288D1",
+    letterSpacing: 1.2,
+  },
+  selectedTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#01579B",
+    marginBottom: 8,
+    letterSpacing: 0.3,
+  },
+  categoryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  selectedCategory: {
+    fontSize: 14,
+    color: "#01579B",
+    fontWeight: '600',
+  },
+  sectionHeader: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: colors.text,
+    marginBottom: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  favChip: { 
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.md, 
+    paddingVertical: spacing.sm + 2, 
+    backgroundColor: "#FFF3E0", 
+    borderRadius: 20, 
+    marginRight: spacing.sm, 
+    borderWidth: 1.5, 
+    borderColor: "#FFD54F",
+    shadowColor: "#FF6F00",
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+  },
+  favChipEmoji: {
+    fontSize: 16,
+    marginRight: 6,
+  },
+  favChipTxt: { 
+    color: "#E65100", 
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  playerSection: {
+    marginVertical: spacing.md,
+  },
+  topBtn: { 
+    position: 'absolute', 
+    right: 16, 
+    bottom: 16, 
+    backgroundColor: colors.primary || '#0288D1', 
+    paddingHorizontal: 16, 
+    paddingVertical: 12, 
+    borderRadius: 24, 
+    shadowColor: '#000', 
+    shadowOpacity: 0.25, 
+    shadowRadius: 8, 
+    shadowOffset: { width:0, height:4 }, 
+    elevation: 4,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  topBtnText: { 
+    color: '#fff', 
+    fontWeight: '800',
+    fontSize: 14,
+  }
 });

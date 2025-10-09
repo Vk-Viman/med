@@ -56,7 +56,10 @@ export default function Moderation(){
   };
   return (
     <Protected>
-      <h1 className="text-xl font-bold mb-4">Moderation Queue</h1>
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">🚨 Moderation Queue</h1>
+        <p className="text-gray-600">Review and manage reported content</p>
+      </div>
       <div className="mb-3 flex items-center gap-3">
         <label className="text-sm">Status:
           <select value={statusFilter} onChange={e=> setStatusFilter(e.target.value)} className="ml-2 border rounded px-2 py-1 text-sm">

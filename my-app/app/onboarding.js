@@ -63,13 +63,13 @@ export default function Onboarding() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#E1F5FE" },
-  slide: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
-  img: { width: 160, height: 160, marginBottom: 18 },
-  animWrap: { width: 220, height: 220, marginBottom: 18 },
+  slide: { flex: 1, alignItems: "center", justifyContent: "center", padding: 28 },
+  img: { width: 180, height: 180, marginBottom: 24, borderRadius: 20 },
+  animWrap: { width: 260, height: 260, marginBottom: 28, borderRadius: 24, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.5)', padding: 20 },
   anim: { width: "100%", height: "100%" },
-  title: { fontSize: 24, fontWeight: "800", color: "#01579B", textAlign: "center", marginBottom: 8 },
-  subtitle: { fontSize: 16, color: "#0277BD", textAlign: "center" },
-  footer: { position: "absolute", bottom: 24, left: 24, right: 24, flexDirection: "row", justifyContent: "space-between" },
+  title: { fontSize: 28, fontWeight: "800", color: "#01579B", textAlign: "center", marginBottom: 12, letterSpacing: 0.3 },
+  subtitle: { fontSize: 17, color: "#0277BD", textAlign: "center", lineHeight: 24, paddingHorizontal: 20 },
+  footer: { position: "absolute", bottom: 32, left: 24, right: 24, flexDirection: "row", justifyContent: "space-between", gap: 12 },
 });
 
 function AnimWithFallback({ lottie, fallback }) {

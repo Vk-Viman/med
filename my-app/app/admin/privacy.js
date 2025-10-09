@@ -35,11 +35,11 @@ export default function PrivacyCenter(){
   const empty = !loading && (!items || items.length===0);
   return (
     <ScrollView style={{ flex:1, backgroundColor: theme.bg }} contentContainerStyle={{ padding:12 }}>
-      <Text style={{ color: theme.text, fontWeight:'800', fontSize:18, marginBottom:8 }}>Privacy Request Center</Text>
-      {loading && <Text style={{ color: theme.text }}>Loading...</Text>}
-      {empty && <Text style={{ color: theme.textMuted }}>No open requests.</Text>}
+      <Text style={{ color: theme.text, fontWeight:'800', fontSize:28, marginBottom:16, letterSpacing:0.3 }}>Privacy Request Center</Text>
+      {loading && <Text style={{ color: theme.text, fontSize:15 }}>Loading...</Text>}
+      {empty && <Text style={{ color: theme.textMuted, fontSize:15 }}>No open requests.</Text>}
       {!empty && items.map(item => (
-        <View key={item.id} style={{ backgroundColor: theme.card, padding:12, borderRadius:12, marginBottom:8 }}>
+        <View key={item.id} style={{ backgroundColor: theme.card, padding:18, borderRadius:16, marginBottom:14, shadowColor:'#000', shadowOpacity:0.08, shadowRadius:8, elevation:3, borderWidth:1, borderColor:'rgba(0,0,0,0.05)' }}>
           <Text style={{ color: theme.text, fontWeight:'700' }}>{(item.type||'').toUpperCase()} request</Text>
           <Text style={{ color: theme.textMuted, fontSize:12 }}>User: {item.uid}</Text>
           {!!item.fileUrl && (

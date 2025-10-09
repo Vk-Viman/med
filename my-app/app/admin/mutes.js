@@ -48,6 +48,6 @@ export default function AdminMutes(){
   );
 }
 const styles = StyleSheet.create({
-  inp:{ flex:1, height:44, borderRadius:10, paddingHorizontal:10 },
-  row:{ padding:12, borderRadius:12, flexDirection:'row', alignItems:'center', justifyContent:'space-between' }
+  inp:{ flex:1, height:52, borderRadius:14, paddingHorizontal:16, fontSize:15, borderWidth:2, borderColor:'rgba(0,0,0,0.1)', shadowColor:'#000', shadowOpacity:0.04, shadowRadius:4, elevation:1 },
+  row:{ padding:16, borderRadius:14, flexDirection:'row', alignItems:'center', justifyContent:'space-between', shadowColor:'#000', shadowOpacity:0.06, shadowRadius:6, elevation:2, borderWidth:1, borderColor:'rgba(0,0,0,0.05)' }
 });

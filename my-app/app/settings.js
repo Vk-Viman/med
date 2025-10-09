@@ -8,6 +8,8 @@ import { auth } from "../firebase/firebaseConfig";
 import { signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword, deleteUser, sendEmailVerification } from "firebase/auth";
 import { spacing, radius, shadow } from "../src/theme";
 import { useTheme } from "../src/theme/ThemeProvider";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from 'expo-linear-gradient';
 import { exportAllMoodEntries, exportMoodEntriesBetween, buildMoodCSV, buildMoodMarkdown, getLocalOnlyMode, setLocalOnlyMode, deleteAllMoodEntries, escrowEncryptDeviceKey, escrowDecryptDeviceKey, getEncryptionStatus, enablePassphraseProtection, disablePassphraseProtection, unlockWithPassphrase, lockEncryptionKey, migrateLegacyToV2, backfillMoodScores, getRetentionDays, setRetentionDays, purgeMoodEntriesOlderThan } from "../src/services/moodEntries";
 import { getUserProfile, updateUserProfile, ensureUserProfile, deleteUserProfile } from '../src/services/userProfile';
 import { bumpSessionEpoch } from '../src/services/userProfile';
@@ -1093,7 +1095,16 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text ref={titleRef} style={styles.title} accessibilityRole='header' accessibilityLabel='Settings'>Settings</Text>
+      {/* Enhanced Header */}
+      <View style={styles.header}>
+        <View style={styles.iconBadge}>
+          <Ionicons name="settings" size={28} color="#0288D1" />
+        </View>
+        <View style={{ flex: 1, marginLeft: 16 }}>
+          <Text ref={titleRef} style={styles.title} accessibilityRole='header' accessibilityLabel='Settings'>Settings</Text>
+          <Text style={styles.subtitle}>Manage your account and preferences</Text>
+        </View>
+      </View>
       <SectionList
         sections={sections}
         keyExtractor={(item)=> item.key}
@@ -1113,37 +1124,66 @@ export default function SettingsScreen() {
 
 const createStyles = (colors) => StyleSheet.create({
   container: { flex:1, backgroundColor: colors.bg },
-  scrollContent:{ padding: spacing.lg, paddingBottom: spacing.lg },
-  listContent:{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg },
-  title:{ fontSize:28, fontWeight:'800', color: colors.text, marginBottom: spacing.md, textAlign:'center' },
-  sectionBox:{ backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.md, ...shadow.card },
-  stickyHeader:{ backgroundColor: colors.bg, paddingTop: spacing.md, paddingBottom: spacing.xs },
-  itemRow:{ backgroundColor: colors.card, borderRadius: radius.md, padding: spacing.md, ...shadow.card },
-  itemSeparator:{ height: spacing.xs },
-  sectionHeading:{ fontSize:16, fontWeight:'700', color: colors.text, marginBottom: spacing.sm },
-  subLabel:{ fontSize:12, fontWeight:'600', color: colors.textMuted, marginBottom:4 },
-  boxInner:{ marginTop: spacing.sm },
-  noteText:{ fontSize:12, color: colors.textMuted, marginTop:4 },
-  rowBetween:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginTop: spacing.xs },
-  rowBetweenMul:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginTop: spacing.sm },
-  label:{ fontSize:14, fontWeight:'600', color: colors.text },
+  scrollContent:{ padding: spacing.lg, paddingBottom: spacing.xl },
+  listContent:{ paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.card,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border || (colors.bg === '#0B1722' ? '#37474F' : '#B3E5FC'),
+    ...shadow.sm,
+  },
+  iconBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: '#E1F5FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#0288D1',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  title:{ fontSize:28, fontWeight:'800', color: colors.text, letterSpacing: 0.5 },
+  subtitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  sectionBox:{ backgroundColor: colors.card, borderRadius: radius.xl, padding: spacing.lg, marginBottom: spacing.md, ...shadow.card, borderWidth: 1, borderColor: colors.border || 'transparent' },
+  stickyHeader:{ backgroundColor: colors.bg, paddingTop: spacing.md, paddingBottom: spacing.sm },
+  itemRow:{ backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.lg, ...shadow.card, marginBottom: spacing.xs },
+  itemSeparator:{ height: spacing.sm },
+  sectionHeading:{ fontSize:18, fontWeight:'800', color: colors.text, marginBottom: spacing.md, letterSpacing: 0.2 },
+  subLabel:{ fontSize:13, fontWeight:'600', color: colors.textMuted, marginBottom:6, letterSpacing: 0.1 },
+  boxInner:{ marginTop: spacing.md },
+  noteText:{ fontSize:13, color: colors.textMuted, marginTop:6, lineHeight: 20 },
+  rowBetween:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginTop: spacing.sm },
+  rowBetweenMul:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginTop: spacing.md },
+  label:{ fontSize:15, fontWeight:'600', color: colors.text, letterSpacing: 0.1 },
   inlineOptions:{ flexDirection:'row', flexWrap:'wrap', justifyContent:'flex-end', maxWidth:'60%' },
-  intervalChip:{ paddingHorizontal:10, paddingVertical:6, borderRadius:20, backgroundColor: colors.bg === '#0B1722' ? '#182635' : '#eef2f5', marginLeft:6, marginTop:4 },
-  intervalChipActive:{ backgroundColor: colors.primary },
-  intervalChipText:{ fontSize:12, fontWeight:'600', color: colors.text },
+  intervalChip:{ paddingHorizontal:14, paddingVertical:8, borderRadius:24, backgroundColor: colors.bg === '#0B1722' ? '#182635' : '#eef2f5', marginLeft:8, marginTop:6, borderWidth: 2, borderColor: 'transparent', shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 3, elevation: 1 },
+  intervalChipActive:{ backgroundColor: colors.primary, borderColor: colors.primaryDark || colors.primary, shadowOpacity: 0.12, shadowRadius: 6, elevation: 3 },
+  intervalChipText:{ fontSize:13, fontWeight:'700', color: colors.text, letterSpacing: 0.2 },
   intervalChipTextActive:{ color: colors.primaryContrast },
-  avatar:{ width:72, height:72, borderRadius:36, backgroundColor:'#90CAF9', borderWidth:2, borderColor: colors.card },
+  avatar:{ width:80, height:80, borderRadius:40, backgroundColor:'#90CAF9', borderWidth:3, borderColor: colors.primary },
   avatarPlaceholder:{ alignItems:'center', justifyContent:'center' },
-  avatarPlaceholderTxt:{ fontSize:28, fontWeight:'700', color: colors.primaryContrast },
-  avatarRow:{ flexDirection:'row', alignItems:'center', marginBottom: spacing.sm },
-  pwMeterWrapper:{ marginBottom: spacing.sm },
-  pwBarRow:{ flexDirection:'row', height:8, marginTop:4, marginBottom:6 },
-  pwSeg:{ flex:1, marginRight:4, backgroundColor: colors.bg === '#0B1722' ? '#1f3347' : '#ECEFF1', borderRadius:4 },
-  pwFeedback:{ fontSize:11, fontWeight:'600', color:'#388E3C' },
+  avatarPlaceholderTxt:{ fontSize:32, fontWeight:'800', color: colors.primaryContrast },
+  avatarRow:{ flexDirection:'row', alignItems:'center', marginBottom: spacing.md, gap: spacing.md },
+  pwMeterWrapper:{ marginBottom: spacing.md },
+  pwBarRow:{ flexDirection:'row', height:10, marginTop:6, marginBottom:8, gap: 4 },
+  pwSeg:{ flex:1, backgroundColor: colors.bg === '#0B1722' ? '#1f3347' : '#ECEFF1', borderRadius:6 },
+  pwFeedback:{ fontSize:12, fontWeight:'600', color:'#388E3C', letterSpacing: 0.1 },
   _pwColors:['#D32F2F','#F57C00','#FBC02D','#7CB342','#2E7D32'],
-  passwordRow:{ position:'relative', marginBottom:8 },
-  visToggle:{ position:'absolute', right:10, top:10, padding:4 },
-  visIcon:{ fontSize:18, color: colors.textMuted }
+  passwordRow:{ position:'relative', marginBottom:10 },
+  visToggle:{ position:'absolute', right:12, top:12, padding:6, zIndex: 10 },
+  visIcon:{ fontSize:20, color: colors.textMuted }
 });
 
 // Simple inline Input component to avoid extra imports

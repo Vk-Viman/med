@@ -31,5 +31,5 @@ export default function AdminAuditLog(){
   );
 }
 const styles = StyleSheet.create({
-  card:{ padding:12, borderRadius:12, marginBottom:10 },
+  card:{ padding:18, borderRadius:16, marginBottom:14, shadowColor:'#000', shadowOpacity:0.08, shadowRadius:8, elevation:3, borderWidth:1, borderColor:'rgba(0,0,0,0.05)' },
 });

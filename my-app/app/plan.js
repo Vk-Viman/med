@@ -4,6 +4,8 @@ import { doc, setDoc, getDoc } from "firebase/firestore";
 import { db, auth } from "../firebase/firebaseConfig";
 import { generateAndSavePlan } from "../src/services/planService";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import GradientCard from "../src/components/GradientCard";
 
 const choices = {
   stress: ["Low", "Medium", "High"],
@@ -195,8 +197,18 @@ export default function PlanScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Enhanced Header */}
+      <View style={styles.header}>
+        <View style={styles.iconBadge}>
+          <Ionicons name="calendar" size={28} color="#42A5F5" />
+        </View>
+        <View style={{ flex: 1, marginLeft: 16 }}>
+          <Text style={styles.title}>Your Plan</Text>
+          <Text style={styles.subtitle}>Personalized meditation recommendations</Text>
+        </View>
+      </View>
+
       <ScrollView contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>Personalized Meditation Plan</Text>
         <TouchableOpacity
           onPress={() => router.push('/your-plan')}
           accessibilityRole="button"
@@ -268,8 +280,41 @@ export default function PlanScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, backgroundColor: "#E1F5FE" },
-  title: { fontSize: 22, fontWeight: "bold", color: "#0288D1", marginBottom: 16 },
+  container: { flex: 1, backgroundColor: "#E1F5FE" },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  iconBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: '#E3F2FD',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#42A5F5',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  title: { fontSize: 28, fontWeight: "800", color: "#0288D1", letterSpacing: 0.5 },
+  subtitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#546E7A',
+    marginTop: 2,
+  },
   label: { marginBottom: 8, color: "#01579B", fontWeight: "500" },
   row: { flexDirection: "row", gap: 8 },
   chip: { paddingVertical:10, paddingHorizontal:14, borderRadius:10, backgroundColor:'#B3E5FC' },

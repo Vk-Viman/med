@@ -77,9 +77,9 @@ export default function AdminHome(){
 }
 
 const styles = StyleSheet.create({
-  title:{ fontSize:22, fontWeight:'800', marginBottom:12 },
-  cardsRow:{ flexDirection:'row', gap:12, marginBottom:12 },
-  card:{ flex:1, padding:16, borderRadius:12 },
-  metric:{ fontSize:24, fontWeight:'800' },
-  label:{ fontSize:12, fontWeight:'600' },
+  title:{ fontSize:28, fontWeight:'800', marginBottom:20, letterSpacing: 0.3 },
+  cardsRow:{ flexDirection:'row', gap:16, marginBottom:16 },
+  card:{ flex:1, padding:20, borderRadius:16, shadowColor:'#000', shadowOpacity:0.08, shadowRadius:8, elevation:3, borderWidth:1, borderColor:'rgba(0,0,0,0.05)' },
+  metric:{ fontSize:32, fontWeight:'800', letterSpacing: 0.2 },
+  label:{ fontSize:13, fontWeight:'700', marginTop:6, letterSpacing: 0.2 },
 });

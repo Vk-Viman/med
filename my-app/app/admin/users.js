@@ -96,9 +96,9 @@ export default function AdminUsers(){
   );
 }
 const styles = StyleSheet.create({
-  input:{ height:44, borderWidth:1, borderRadius:12, paddingHorizontal:10 },
-  row:{ padding:12, borderRadius:12 },
-  name:{ fontSize:14, fontWeight:'700' }
+  input:{ height:52, borderWidth:2, borderRadius:14, paddingHorizontal:16, fontSize:15, shadowColor:'#000', shadowOpacity:0.04, shadowRadius:4, elevation:1 },
+  row:{ padding:18, borderRadius:16, shadowColor:'#000', shadowOpacity:0.08, shadowRadius:8, elevation:3, borderWidth:1, borderColor:'rgba(0,0,0,0.05)', marginBottom:4 },
+  name:{ fontSize:16, fontWeight:'800', letterSpacing:0.2 }
 });
 
 function formatDate(ts){

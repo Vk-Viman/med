@@ -10,6 +10,10 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { Ionicons } from '@expo/vector-icons';
 import { selection } from '../src/utils/haptics';
+import { LinearGradient } from 'expo-linear-gradient';
+import GradientCard from '../src/components/GradientCard';
+import ProgressRing from '../src/components/ProgressRing';
+import EmptyState from '../src/components/EmptyState';
 
 function fmtTime(t) {
   if (!t || isNaN(t)) return '0m';
@@ -226,10 +230,42 @@ export default function SessionsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Enhanced Header */}
+      <View style={styles.header}>
+        <View style={styles.iconBadge}>
+          <Ionicons name="time" size={28} color="#66BB6A" />
+        </View>
+        <View style={{ flex: 1, marginLeft: 16 }}>
+          <Text style={styles.title}>Sessions</Text>
+          <Text style={styles.subtitle}>Your meditation history</Text>
+        </View>
+      </View>
+
+      {/* Stats Card */}
+      <GradientCard colors={['#66BB6A', '#43A047', '#2E7D32']} style={{ margin: spacing.lg, marginBottom: spacing.md }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <ProgressRing
+            size={80}
+            progress={summary.count > 0 ? Math.min(summary.count / 30, 1) : 0}
+            strokeWidth={8}
+            color="#fff"
+            backgroundColor="rgba(255,255,255,0.3)"
+          />
+          <View style={{ marginLeft: 16, flex: 1 }}>
+            <Text style={{ fontSize: 32, fontWeight: '800', color: '#fff' }}>
+              {summary.totalMin}
+            </Text>
+            <Text style={{ fontSize: 14, color: '#fff', opacity: 0.9, marginTop: 4 }}>
+              Total Minutes ({summary.count} sessions)
+            </Text>
+          </View>
+        </View>
+      </GradientCard>
+
       <View style={styles.headerRow}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Ionicons name="time-outline" size={22} color={colors.text} />
-          <Text style={styles.header}>Session History</Text>
+          <Ionicons name="list" size={20} color={colors.text} />
+          <Text style={styles.listHeader}>Recent Sessions</Text>
         </View>
         <View style={{ flexDirection: 'row' }}>
           <TouchableOpacity
@@ -290,14 +326,20 @@ export default function SessionsScreen() {
           ))}
         </View>
       ) : (
-        <Animated.View style={{ opacity: fade }}>
+        <Animated.View style={{ opacity: fade, flex: 1 }}>
           <FlatList
             data={filtered}
             keyExtractor={(it) => it.id}
             renderItem={renderItem}
             ItemSeparatorComponent={() => <View style={styles.sep} />}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-            ListEmptyComponent={<Text style={styles.empty}>No sessions yet</Text>}
+            ListEmptyComponent={
+              <EmptyState
+                icon="hourglass-outline"
+                title="No sessions yet"
+                subtitle="Complete your first meditation to see your history"
+              />
+            }
           />
         </Animated.View>
       )}
@@ -306,38 +348,87 @@ export default function SessionsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: spacing.lg },
-  headerRow: {
+  container: { flex: 1, backgroundColor: '#F5F5F5' },
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  iconBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: '#E8F5E9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#66BB6A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: colors.text,
+    letterSpacing: 0.5,
+  },
+  subtitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  listHeader: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+    marginLeft: 8,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    paddingHorizontal: spacing.lg,
+    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
   },
-  header: { fontSize: 22, fontWeight: '800', color: colors.text, marginLeft: 8 },
-  row: { flexDirection: 'row', paddingVertical: spacing.sm, alignItems: 'center' },
-  sep: { height: 1, backgroundColor: '#ECEFF1' },
-  title: { fontWeight: '700', color: colors.text },
-  meta: { color: colors.mutedText || '#607D8B', fontSize: 12 },
-  date: { color: colors.mutedText || '#78909C', fontSize: 12, textAlign: 'right' },
-  empty: { color: colors.mutedText || '#90A4AE' },
-  skelRow: { paddingVertical: spacing.sm },
-  skelTitle: { height: 16, backgroundColor: '#ECEFF1', borderRadius: 6, width: '50%', marginBottom: 6 },
-  skelMeta: { height: 12, backgroundColor: '#ECEFF1', borderRadius: 6, width: '35%' },
-  summaryRow: { flexDirection: 'row', gap: 8, marginBottom: spacing.md },
-  pill: { backgroundColor: '#E0F2F1', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6 },
-  pillText: { color: '#006064', fontWeight: '700', fontSize: 12 },
-  filters: { marginBottom: spacing.md },
-  filterChipRow: { flexDirection: 'row', marginBottom: 6 },
+  header: { fontSize: 26, fontWeight: '800', color: colors.text, marginLeft: 8, letterSpacing: 0.3 },
+  row: { flexDirection: 'row', paddingVertical: spacing.md, paddingHorizontal: spacing.md, alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, marginBottom: 10, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, elevation: 2 },
+  sep: { height: 1, backgroundColor: '#ECEFF1', marginVertical: 4 },
+  title: { fontWeight: '700', color: colors.text, fontSize: 16, letterSpacing: 0.2 },
+  meta: { color: colors.mutedText || '#607D8B', fontSize: 13, marginTop: 4 },
+  date: { color: colors.mutedText || '#78909C', fontSize: 13, textAlign: 'right' },
+  empty: { color: colors.mutedText || '#90A4AE', textAlign: 'center', marginTop: 40, fontSize: 15 },
+  skelRow: { paddingVertical: spacing.md, backgroundColor: '#fff', borderRadius: 14, marginBottom: 10, paddingHorizontal: spacing.md },
+  skelTitle: { height: 18, backgroundColor: '#ECEFF1', borderRadius: 8, width: '50%', marginBottom: 8 },
+  skelMeta: { height: 14, backgroundColor: '#ECEFF1', borderRadius: 8, width: '35%' },
+  summaryRow: { flexDirection: 'row', gap: 10, marginBottom: spacing.md },
+  pill: { backgroundColor: '#E0F2F1', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 },
+  pillText: { color: '#006064', fontWeight: '700', fontSize: 13, letterSpacing: 0.2 },
+  filters: { marginBottom: spacing.md, backgroundColor: '#fff', borderRadius: 14, padding: spacing.md, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 },
+  filterChipRow: { flexDirection: 'row', marginBottom: 8, flexWrap: 'wrap' },
   chip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     backgroundColor: '#E0F2F1',
-    borderRadius: 14,
-    marginRight: 6,
+    borderRadius: 16,
+    marginRight: 8,
+    marginBottom: 8,
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
-  chipActive: { backgroundColor: '#80DEEA' },
-  chipText: { color: '#006064', fontWeight: '700' },
+  chipActive: { backgroundColor: '#80DEEA', borderColor: '#26C6DA' },
+  chipText: { color: '#006064', fontWeight: '700', fontSize: 13 },
   chipTextActive: { color: '#004D40' },
-  btn: { backgroundColor: '#0288D1', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 },
-  btnTxt: { color: '#fff', fontWeight: '700', fontSize: 12 },
+  btn: { backgroundColor: '#0288D1', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 4, elevation: 2 },
+  btnTxt: { color: '#fff', fontWeight: '700', fontSize: 13, letterSpacing: 0.3 },
 });
