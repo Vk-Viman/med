@@ -23,6 +23,7 @@ import * as FSLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { getAdminConfig, subscribeAdminConfig } from '../src/services/config';
+import { clearUserSubscriptions } from '../src/utils/safeSnapshot';
 import { registerPushTokens } from '../src/services/pushTokens';
 import { db } from '../firebase/firebaseConfig';
 import { doc, getDoc } from 'firebase/firestore';
@@ -217,6 +218,8 @@ export default function SettingsScreen() {
 
   const logout = async () => {
     try {
+      // Proactively clear user-scoped listeners to avoid transient permission errors
+      try { clearUserSubscriptions(); } catch {}
       await signOut(auth);
       router.replace("/login");
     } catch (e) {

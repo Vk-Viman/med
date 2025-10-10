@@ -14,11 +14,7 @@ module.exports = ({ config }) => {
       icon: './assets/icon.png',
       userInterfaceStyle: 'light',
       newArchEnabled: true,
-  updates: { enabled: false },
-  // Use appVersion as the runtimeVersion so EAS Updates and native builds
-  // target the same runtime. This avoids "failed to download remote update"
-  // errors caused by runtimeVersion/manifest mismatches.
-  runtimeVersion: { policy: 'appVersion' },
+      updates: { enabled: false },
       splash: {
         image: './assets/splash-icon.png',
         resizeMode: 'contain',

@@ -1,5 +1,6 @@
 import { db } from '../../firebase/firebaseConfig';
-import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, limit as qlimit } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, orderBy, query, limit as qlimit } from 'firebase/firestore';
+import { safeSnapshot } from '../utils/safeSnapshot';
 
 // Public/user-side accessor for meditation records by ID.
 // Reads from admin_meditations but does not depend on admin-only service imports.
@@ -32,7 +33,7 @@ export function subscribeMeditations(callback, { limit = 200 } = {}){
     const ref = collection(db, 'admin_meditations');
     let q = query(ref);
     try { q = query(ref, orderBy('createdAt', 'desc'), qlimit(limit)); } catch { /* ignore */ }
-    const unsub = onSnapshot(q, (snap)=>{
+    const unsub = safeSnapshot(q, (snap)=>{
       const rows = [];
       snap.forEach(d => rows.push({ id: d.id, ...d.data() }));
       try { callback(rows); } catch {}

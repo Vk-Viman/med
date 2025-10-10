@@ -29,6 +29,8 @@ export function safeSnapshot(refOrQuery, onNext, onError){
     // Swallow common auth/rules transitions; forward others
     const code = String(err?.code||'');
     if(code === 'permission-denied' || code === 'unauthenticated'){
+      // Stop this listener to avoid repeated console errors after sign-out or rule failures
+      try { unsub(); } catch {}
       try { onError && onError(err); } catch {}
       return;
     }

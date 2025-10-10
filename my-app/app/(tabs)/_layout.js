@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { collection, query, where, onSnapshot, limit } from 'firebase/firestore';
+import { collection, query, where, limit } from 'firebase/firestore';
+import { safeSnapshot } from '../../src/utils/safeSnapshot';
 import { db, auth } from "../../firebase/firebaseConfig";
 
 export default function TabsLayout() {
@@ -11,7 +12,7 @@ export default function TabsLayout() {
     if(!uid) return; // we could also listen for auth changes; simplified for now
     try {
       const qref = query(collection(db,'users',uid,'inbox'), where('read','==', false), limit(25));
-      const unsub = onSnapshot(qref, async snap=>{ 
+      const unsub = safeSnapshot(qref, async snap=>{ 
         const count = snap.docs.length; 
         setUnread(count); 
         // Attempt to set native app badge count (supported platforms only)

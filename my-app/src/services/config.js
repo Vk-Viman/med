@@ -1,5 +1,6 @@
 import { db } from '../../firebase/firebaseConfig';
-import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { safeSnapshot } from '../utils/safeSnapshot';
 
 const CONFIG_PATH = 'admin_config/app';
 const DEFAULTS = {
@@ -35,7 +36,7 @@ export async function setAdminConfigPatch(patch){
 
 export function subscribeAdminConfig(cb){
   const ref = doc(db, CONFIG_PATH);
-  return onSnapshot(ref, (snap)=>{
+  return safeSnapshot(ref, (snap)=>{
     const data = snap.exists()? { ...DEFAULTS, ...(snap.data()||{}) } : { ...DEFAULTS };
     try { cb(data); } catch {}
   }, ()=>{

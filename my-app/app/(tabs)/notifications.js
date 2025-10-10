@@ -5,7 +5,8 @@ import { useTheme } from '../../src/theme/ThemeProvider';
 import { inboxList, inboxMarkRead, inboxMarkAllRead } from '../../src/services/inbox';
 import { db, auth } from '../../firebase/firebaseConfig';
 import { useRouter } from 'expo-router';
-import { collection, query, orderBy, limit, onSnapshot, startAfter } from 'firebase/firestore';
+import { collection, query, orderBy, limit, startAfter } from 'firebase/firestore';
+import { safeSnapshot } from '../../src/utils/safeSnapshot';
 
 export default function NotificationsScreen(){
   const { theme } = useTheme();
@@ -24,7 +25,7 @@ export default function NotificationsScreen(){
     const uid = auth.currentUser?.uid; if(!uid) return;
     try {
       const qref = query(collection(db,'users',uid,'inbox'), orderBy('createdAt','desc'), limit(pageSize));
-      const unsub = onSnapshot(qref, snap=>{
+      const unsub = safeSnapshot(qref, snap=>{
         const docs = snap.docs.map(d=> ({ id:d.id, _snap:d, ...d.data() }));
         setLiveItems(docs);
         // If we don't have older loaded yet, set cursor to last doc for pagination start
