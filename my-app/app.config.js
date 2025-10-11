@@ -8,7 +8,7 @@ module.exports = ({ config }) => {
     expo: {
       scheme: 'calmspace',
       name: 'CalmSpace',
-      slug: 'my-app',
+  slug: 'med',
       version: '1.0.0',
       orientation: 'portrait',
       icon: './assets/icon.png',
