@@ -28,7 +28,6 @@ module.exports = ({ config }) => {
       },
       android: {
         package: 'io.github.vkviman.calmspace',
-        versionCode: 1,
         adaptiveIcon: {
           foregroundImage: './assets/adaptive-icon.png',
           backgroundColor: '#ffffff',
@@ -56,7 +55,7 @@ module.exports = ({ config }) => {
       extra: {
         router: { origin: 'https://vk-viman.github.io', basePath: '/med' },
         apiBase: 'http://192.168.8.105:3000',
-        eas: { projectId: 'c09fda06-4107-4fd1-8c71-f7871ce586da' },
+        eas: { projectId: '40871f8f-ae29-48bd-9a04-0089eb2a7fc5' },
       },
     },
   };
