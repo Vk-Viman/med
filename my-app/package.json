@@ -8,6 +8,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "fix:icons": "node scripts/fix-icons.js",
     "export:web": "expo export --platform web --output-dir web-build",
     "postexport:web": "copy web-build\\index.html web-build\\404.html >NUL 2>&1 || exit 0 && (type NUL > web-build\\.nojekyll)",
     "export:docs": "expo export --platform web --output-dir web-build && (copy web-build\\index.html web-build\\404.html >NUL 2>&1 || exit 0) && (type NUL > web-build\\.nojekyll) && (IF EXIST ..\\docs rmdir /S /Q ..\\docs) && xcopy /E /I /Y /H web-build ..\\docs && node scripts\\fix-docs-paths.js"
@@ -35,7 +36,7 @@
     "expo-notifications": "~0.32.12",
     "expo-print": "~15.0.7",
     "expo-random": "^14.0.1",
-    "expo-router": "6.0.11",
+    "expo-router": "~6.0.12",
     "expo-secure-store": "~15.0.7",
     "expo-sharing": "~14.0.7",
     "expo-status-bar": "~3.0.8",
