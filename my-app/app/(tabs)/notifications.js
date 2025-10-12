@@ -91,9 +91,13 @@ export default function NotificationsScreen(){
     setOlderItems(prev=> prev.map(it=> it.id===id? { ...it, read:true } : it));
   };
   const markAll = async ()=>{
-    await inboxMarkAllRead();
-    setLiveItems(prev=> prev.map(it=> ({ ...it, read:true })));
-    setOlderItems(prev=> prev.map(it=> ({ ...it, read:true })));
+    try {
+      const count = await inboxMarkAllRead();
+      setLiveItems(prev=> prev.map(it=> ({ ...it, read:true })));
+      setOlderItems(prev=> prev.map(it=> ({ ...it, read:true })));
+      // Nudge badge listener (Tabs) by briefly forcing state; it listens to Firestore so this is just UX feedback
+      try { const Notifications = await import('expo-notifications'); await Notifications.setBadgeCountAsync(0); } catch {}
+    } catch {}
   };
 
   const renderItem = ({ item }) => {

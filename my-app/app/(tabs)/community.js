@@ -61,6 +61,7 @@ export default function CommunityScreen() {
   const [cfg, setCfg] = useState({ communityMaxLength:300, communityAllowLinks:false, postCooldownMs:15000, replyCooldownMs:10000, termsShort:'', termsCategories:[], termsFullUrl:'' });
   const [isBanned, setIsBanned] = useState(false);
   const [searchQuery, setSearchQuery] = useState(""); // Search posts
+  const inputRef = useRef(null);
 
   const fmtDate = (ts)=>{
     try{
@@ -976,6 +977,7 @@ export default function CommunityScreen() {
             <Ionicons name="person" size={20} color="#0288D1" />
           </View>
           <TextInput 
+            ref={inputRef}
             style={styles.modernInput} 
             value={message} 
             onChangeText={setMessage} 
@@ -1189,8 +1191,10 @@ export default function CommunityScreen() {
         <FloatingActionButton
           icon="create"
           onPress={() => {
-            scrollRef.current?.scrollTo({ y: 0, animated: true });
-            // Focus will go to the TextInput at top
+            if(!termsAccepted){ setShowGuidelines(true); return; }
+            try { scrollRef.current?.scrollTo({ y: 0, animated: true }); } catch {}
+            // Focus the composer input after scroll animation
+            setTimeout(()=>{ try { inputRef.current?.focus(); } catch {} }, 250);
           }}
           colors={['#AB47BC', '#8E24AA']}
           position="bottom-right"
