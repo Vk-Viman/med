@@ -32,7 +32,7 @@ export default function Plans() {
       setPlans(plansData);
     } catch (error) {
       console.error('Error loading plans:', error);
-      alert('Error loading plans: ' + error.message);
+      alert('Could not load subscription plans. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -67,8 +67,23 @@ export default function Plans() {
   const savePlan = async (e) => {
     e.preventDefault();
 
+    // Basic validation
     if (!name.trim()) {
       alert('Please enter a plan name');
+      return;
+    }
+
+    // Price validation
+    const parsedPrice = parseFloat(price);
+    if (price && (isNaN(parsedPrice) || parsedPrice < 0)) {
+      alert('Price must be a positive number');
+      return;
+    }
+
+    // Duration validation
+    const parsedDuration = parseInt(duration);
+    if (duration && (isNaN(parsedDuration) || parsedDuration < 1)) {
+      alert('Duration must be at least 1 day');
       return;
     }
 
@@ -76,8 +91,8 @@ export default function Plans() {
       const data = {
         name: name.trim(),
         description: description.trim(),
-        price: parseFloat(price) || 0,
-        duration: parseInt(duration) || 30,
+        price: parsedPrice || 0,
+        duration: parsedDuration || 30,
         features: features.split('\n').filter(f => f.trim()),
         isPopular,
         updatedAt: serverTimestamp()
@@ -100,7 +115,7 @@ export default function Plans() {
       loadPlans();
     } catch (error) {
       console.error('Error saving plan:', error);
-      alert('Error: ' + error.message);
+      alert('Could not save plan. Please try again.');
     }
   };
 
@@ -111,7 +126,7 @@ export default function Plans() {
       await deleteDoc(doc(db, 'subscriptionPlans', id));
       loadPlans();
     } catch (error) {
-      alert('Error: ' + error.message);
+      alert('Could not delete plan. Please try again.');
     }
   };
 

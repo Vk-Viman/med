@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState, useRef } from "react";
+﻿import React, { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Pressable, ScrollView, RefreshControl, Animated, AccessibilityInfo, InteractionManager, findNodeHandle } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -69,15 +69,15 @@ export default function HomeScreen() {
     try {
       const prof = await getUserProfile();
       if(prof){ setDisplayName(prof.displayName || ''); if(prof.avatarB64) setAvatarB64(prof.avatarB64); }
-    } catch {}
+    } catch (e) { handleError(e, 'HomeScreen.loadData.profile', { severity: 'low' }); }
     try {
       const s = await getMoodSummary({ streakLookbackDays:14 });
       setSummary(s);
       // Award streak badges opportunistically
-      const uid = auth.currentUser?.uid; if(uid && s.streak){ try { await evaluateStreakBadges(uid, s.streak); } catch {} }
-    } catch {}
+      const uid = auth.currentUser?.uid; if(uid && s.streak){ try { await evaluateStreakBadges(uid, s.streak); } catch (e) { handleError(e, 'HomeScreen.evaluateStreakBadges', { severity: 'low' }); } }
+    } catch (e) { handleError(e, 'HomeScreen.loadData.moodSummary', { severity: 'medium' }); }
     // Load recent badges for display
-    try { const uid = auth.currentUser?.uid; if(uid){ const rec = await listUserBadges(uid, 6); setBadges(rec); } } catch {}
+    try { const uid = auth.currentUser?.uid; if(uid){ const rec = await listUserBadges(uid, 6); setBadges(rec); } } catch (e) { handleError(e, 'HomeScreen.listUserBadges', { severity: 'low' }); }
     // Build mood trends text summary (last 7 days) using cached minimal chart data
     try {
       const uid = auth.currentUser?.uid; if(uid){
@@ -112,7 +112,10 @@ export default function HomeScreen() {
           setTrendText('Log moods to see 7‑day trends');
         }
       }
-    } catch { setTrendText(''); }
+    } catch (e) { 
+      handleError(e, 'HomeScreen.loadData.trendText', { severity: 'low' }); 
+      setTrendText(''); 
+    }
     // Compute today's meditation minutes from sessions collection (if available)
     try {
       const uid = auth.currentUser?.uid; if(uid){
@@ -127,7 +130,7 @@ export default function HomeScreen() {
         let totalSec = 0; snap.forEach(d=> { const v = d.data().durationSec; if(Number.isFinite(v)) totalSec += v; });
         setTodayMinutes(Math.round(totalSec/60));
       }
-    } catch {}
+    } catch (e) { handleError(e, 'HomeScreen.loadData.todayMinutes', { severity: 'low' }); }
     // Fast-path: read cached aggregate stats if available
     try {
       const uid = auth.currentUser?.uid; if(uid){
@@ -148,7 +151,10 @@ export default function HomeScreen() {
           setAggStats({ totalMinutes: 0, streak: 0 });
         }
       }
-    } catch { setAggStats({ totalMinutes: 0, streak: 0 }); }
+    } catch (e) { 
+      handleError(e, 'HomeScreen.loadData.aggStats', { severity: 'low' }); 
+      setAggStats({ totalMinutes: 0, streak: 0 }); 
+    }
     if(opts.showSpinner) setLoading(false);
     return () => { mounted = false; };
   };
@@ -190,24 +196,24 @@ export default function HomeScreen() {
       } catch {}
     }, (err) => {
       if (err?.code === 'permission-denied' || err?.code === 'unauthenticated') return;
-      console.warn('badges listener error', err);
+      if (__DEV__) console.warn('badges listener error', err);
     });
     return ()=>{ try{ unsub(); }catch{} };
   },[]);
 
-  const triggerToast = () => {
+  const triggerToast = useCallback(() => {
     setShowToast(true);
     setTimeout(()=> setShowToast(false), 1800);
-  };
+  }, []);
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     if(refreshing) return;
     setRefreshing(true);
     impact('medium');
     await loadData({ showSpinner:false });
     setRefreshing(false);
     triggerToast();
-  };
+  }, [refreshing, triggerToast]);
 
   useFocusEffect(React.useCallback(()=>{
     // silent refresh when returning to screen
@@ -227,25 +233,8 @@ export default function HomeScreen() {
     });
   },[]));
 
-  const moodEmoji = (m) => {
-    if(m == null) return '🌀';
-      // textual categories support
-      if(typeof m === 'string'){
-        const t = m.toLowerCase();
-        if(t.includes('sad')) return '😢';
-        if(t.includes('stress')) return '😣';
-        if(t.includes('calm')) return '🙂';
-        if(t.includes('happy')) return '😄';
-        return '😐';
-      }
-      // numeric mood score fallback (0..10)
-      if(m <= 2) return '😢';
-      if(m <= 4) return '🙁';
-      if(m <= 6) return '😐';
-      if(m <= 8) return '🙂';
-      return '😄';
-  };
-  const moodTint = (m) => {
+  // Memoized helper functions - OPTIMIZED
+  const moodTint = useCallback((m) => {
     // Light mode soft pastels
     if(m == null) return '#E3F2FD';
     if(m <= 2) return '#FFEBEE';
@@ -253,8 +242,9 @@ export default function HomeScreen() {
     if(m <= 6) return '#EDEFF1';
     if(m <= 8) return '#E8F5E9';
     return '#E3F2FD';
-  };
-  const moodTintDark = (m) => {
+  }, []);
+  
+  const moodTintDark = useCallback((m) => {
     // Dark mode, deeper tints for contrast
     if(m == null) return '#0F2132';       // blue-ish
     if(m <= 2) return '#2A1A1A';          // red-ish
@@ -262,10 +252,10 @@ export default function HomeScreen() {
     if(m <= 6) return '#1E2328';          // neutral
     if(m <= 8) return '#18271C';          // green-ish
     return '#0F2132';
-  };
+  }, []);
   // badgeEmoji helper centralized in src/badges
 
-  const moodTextToScore = (val) => {
+  const moodTextToScore = useCallback((val) => {
     if(!val) return null;
     const t = String(val).toLowerCase();
     if(t.includes('happy')) return 9;
@@ -274,8 +264,8 @@ export default function HomeScreen() {
     if(t.includes('stres')) return 4;
     if(t.includes('sad')) return 2;
     return 5; // default mid
-  };
-  const latestMoodLabel = () => {
+  }, []);
+  const latestMoodLabel = useMemo(() => {
     if(!summary.latest) return 'Log your first mood to start tracking';
     const dt = summary.latest.createdAt ? summary.latest.createdAt.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
       const m = summary.latest.mood;
@@ -285,15 +275,19 @@ export default function HomeScreen() {
       const moodPart = mNum != null ? `${Math.round(mNum)}/10 mood` : (m ? `${String(m)}` : 'Mood');
       const stressPart = sNum != null ? `${Math.round(sNum)}/10 stress` : (s ? `${String(s)} stress` : '');
       return `${moodPart}${stressPart? ' • '+stressPart:''}${dt? ' · '+dt:''}`;
-  };
+  }, [summary.latest]);
 
-  const impact = async (style = 'light') => {
+  const impact = useCallback(async (style = 'light') => {
     try {
       const map = { light: Haptics.ImpactFeedbackStyle.Light, medium: Haptics.ImpactFeedbackStyle.Medium, heavy: Haptics.ImpactFeedbackStyle.Heavy };
       await Haptics.impactAsync(map[style] || Haptics.ImpactFeedbackStyle.Light);
     } catch {}
-  };
-  const navigate = async (path, h='light') => { await impact(h); router.push(path); };
+  }, []);
+  
+  const navigate = useCallback(async (path, h='light') => { 
+    await impact(h); 
+    router.push(path); 
+  }, [impact, router]);
 
   // Real-time subscription for last 7 days to auto-update INSIGHTS and streak/summary
   useEffect(()=>{
@@ -496,7 +490,7 @@ export default function HomeScreen() {
               ) : (
                 <>
                   <View style={[styles.snapshotRow, { marginBottom:10 }]}> 
-                    <Text style={styles.moodEmoji}>{moodEmoji(summary.latest.mood)}</Text>
+                    <Text style={styles.moodEmoji}>{getMoodEmoji(summary.latest.mood)}</Text>
                     <View style={{ flex:1 }}>
                       <Text accessibilityLabel={`Latest: ${latestMoodLabel()}`} style={[styles.snapshotTextMain,{ color: theme.text }]}>{latestMoodLabel()}</Text>
                       <Text style={[styles.snapshotSub,{ color: theme.textMuted }]}>Keep consistent logging for better insights</Text>

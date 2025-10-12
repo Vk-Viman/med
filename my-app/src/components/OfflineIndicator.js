@@ -21,6 +21,8 @@ try {
 const OfflineIndicator = () => {
   const [isOnline, setIsOnline] = useState(true);
   const [queueCount, setQueueCount] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0 });
   const slideAnim = useState(new Animated.Value(-60))[0];
 
   useEffect(() => {
@@ -47,7 +49,7 @@ const OfflineIndicator = () => {
     };
   }, []);
 
-  // Check offline queue count
+  // Check offline queue count and sync status
   useEffect(() => {
     const checkQueue = async () => {
       try {
@@ -58,8 +60,23 @@ const OfflineIndicator = () => {
         } else {
           setQueueCount(0);
         }
+
+        // Check sync status
+        const syncStatus = await AsyncStorage.getItem('sync_status');
+        if (syncStatus) {
+          const status = JSON.parse(syncStatus);
+          setIsSyncing(status.syncing || false);
+          setSyncProgress({
+            current: status.current || 0,
+            total: status.total || 0
+          });
+        } else {
+          setIsSyncing(false);
+          setSyncProgress({ current: 0, total: 0 });
+        }
       } catch {
         setQueueCount(0);
+        setIsSyncing(false);
       }
     };
 
@@ -69,7 +86,18 @@ const OfflineIndicator = () => {
       const interval = setInterval(checkQueue, 5000);
       return () => clearInterval(interval);
     } else {
-      setQueueCount(0);
+      // When coming back online, check for pending sync
+      checkQueue();
+      const syncCheckInterval = setInterval(checkQueue, 2000);
+      
+      // Stop checking after 30 seconds
+      setTimeout(() => {
+        clearInterval(syncCheckInterval);
+        setQueueCount(0);
+        setIsSyncing(false);
+      }, 30000);
+      
+      return () => clearInterval(syncCheckInterval);
     }
   }, [isOnline]);
 
@@ -100,13 +128,30 @@ const OfflineIndicator = () => {
       accessibilityLabel={`You are offline${queueCount > 0 ? `. ${queueCount} mood entries queued` : ''}`}
     >
       <View style={styles.content}>
-        <Ionicons name="cloud-offline-outline" size={20} color="#FFFFFF" />
+        <Ionicons 
+          name={isSyncing ? "sync-outline" : "cloud-offline-outline"} 
+          size={20} 
+          color="#FFFFFF" 
+        />
         <View style={styles.textContainer}>
-          <Text style={styles.title}>You're Offline</Text>
-          {queueCount > 0 && (
-            <Text style={styles.subtitle}>
-              {queueCount} {queueCount === 1 ? 'entry' : 'entries'} queued
-            </Text>
+          {isSyncing ? (
+            <>
+              <Text style={styles.title}>Syncing...</Text>
+              {syncProgress.total > 0 && (
+                <Text style={styles.subtitle}>
+                  {syncProgress.current} of {syncProgress.total} {syncProgress.total === 1 ? 'entry' : 'entries'}
+                </Text>
+              )}
+            </>
+          ) : (
+            <>
+              <Text style={styles.title}>{isOnline ? 'Sync Complete' : "You're Offline"}</Text>
+              {queueCount > 0 && (
+                <Text style={styles.subtitle}>
+                  {queueCount} {queueCount === 1 ? 'entry' : 'entries'} queued
+                </Text>
+              )}
+            </>
           )}
         </View>
       </View>

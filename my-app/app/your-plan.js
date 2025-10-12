@@ -26,10 +26,13 @@ export default function YourPlanScreen(){
         recommendWeeklyPlan({ forceRefresh }),
         getCompletedMinutesToday(),
       ]);
-      setPlan(mergeCompletionIntoPlan(p, doneMins));
-    } catch (e) {
-      console.warn('Plan error', e);
-    } finally { setLoading(false); setRefreshing(false); }
+      setPlan(p);
+    } catch(e) {
+      if (__DEV__) console.warn('Plan error', e);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   };
 
   React.useEffect(()=>{ load(); },[]);

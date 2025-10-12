@@ -45,7 +45,7 @@ export default function Meditations() {
       setCategories(categoriesData);
     } catch (error) {
       console.error('Error loading data:', error);
-      alert('Error loading data: ' + error.message);
+      alert('Could not load meditations. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -82,8 +82,27 @@ export default function Meditations() {
   const saveMeditation = async (e) => {
     e.preventDefault();
 
+    // Validation
     if (!title.trim() || !category.trim()) {
       alert('Please fill in title and category');
+      return;
+    }
+
+    // URL validation
+    const urlPattern = /^https?:\/\/.+/;
+    if (audioUrl.trim() && !urlPattern.test(audioUrl.trim())) {
+      alert('Audio URL must be a valid HTTP/HTTPS URL');
+      return;
+    }
+    if (imageUrl.trim() && !urlPattern.test(imageUrl.trim())) {
+      alert('Image URL must be a valid HTTP/HTTPS URL');
+      return;
+    }
+
+    // Duration validation
+    const parsedDuration = parseInt(duration);
+    if (duration && (isNaN(parsedDuration) || parsedDuration < 0)) {
+      alert('Duration must be a positive number');
       return;
     }
 
@@ -92,7 +111,7 @@ export default function Meditations() {
         title: title.trim(),
         description: description.trim(),
         category: category.trim(),
-        duration: parseInt(duration) || 0,
+        duration: parsedDuration || 0,
         audioUrl: audioUrl.trim(),
         imageUrl: imageUrl.trim(),
         level,
@@ -117,7 +136,7 @@ export default function Meditations() {
       loadData();
     } catch (error) {
       console.error('Error saving meditation:', error);
-      alert('Error: ' + error.message);
+      alert('Could not save meditation. Please try again.');
     }
   };
 

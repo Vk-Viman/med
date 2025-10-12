@@ -60,6 +60,7 @@ export default function CommunityScreen() {
   const [showTop, setShowTop] = useState(false);
   const [cfg, setCfg] = useState({ communityMaxLength:300, communityAllowLinks:false, postCooldownMs:15000, replyCooldownMs:10000, termsShort:'', termsCategories:[], termsFullUrl:'' });
   const [isBanned, setIsBanned] = useState(false);
+  const [searchQuery, setSearchQuery] = useState(""); // Search posts
 
   const fmtDate = (ts)=>{
     try{
@@ -839,6 +840,16 @@ export default function CommunityScreen() {
   const keyExtractorUid = useCallback((item)=> item.uid, []);
   const keyExtractorBadge = useCallback((item)=> item.id, []);
 
+  // Filter posts based on search query
+  const filteredPosts = useMemo(() => {
+    if (!searchQuery.trim()) return posts;
+    const query = searchQuery.toLowerCase();
+    return posts.filter(post => 
+      post.message?.toLowerCase().includes(query) ||
+      post.displayName?.toLowerCase().includes(query)
+    );
+  }, [posts, searchQuery]);
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
@@ -995,6 +1006,24 @@ export default function CommunityScreen() {
           </PulseButton>
         </View>
       </ShimmerCard>
+
+      {/* Search Bar for Posts */}
+      <View style={styles.searchContainer}>
+        <Ionicons name="search-outline" size={20} color={theme.textSecondary} style={styles.searchIcon} />
+        <TextInput
+          style={[styles.searchInput, { color: theme.text, backgroundColor: theme.card }]}
+          placeholder="Search posts..."
+          placeholderTextColor={theme.textSecondary}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery("")} style={styles.clearButton}>
+            <Ionicons name="close-circle" size={20} color={theme.textSecondary} />
+          </TouchableOpacity>
+        )}
+      </View>
+
       <View>
         {loadingPosts ? (
           <View style={{ paddingHorizontal: 16 }}>
@@ -1008,9 +1037,15 @@ export default function CommunityScreen() {
             title="No posts yet"
             subtitle="Be the first to share your mindfulness journey with the community!"
           />
+        ) : filteredPosts.length === 0 ? (
+          <EmptyState
+            icon="search-outline"
+            title="No posts found"
+            subtitle={`No posts match "${searchQuery}"`}
+          />
         ) : (
           <FlatList
-            data={posts}
+            data={filteredPosts}
             keyExtractor={keyExtractorPost}
             renderItem={PostItem}
             initialNumToRender={6}
@@ -1396,5 +1431,29 @@ const createStyles = (colors) => StyleSheet.create({
     color: '#fff', 
     fontWeight: '800',
     fontSize: 14,
-  }
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginVertical: 12,
+    borderRadius: 12,
+    backgroundColor: colors.card,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: colors.bg === '#0B1722' ? '#263238' : '#E0E0E0',
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    paddingVertical: 4,
+  },
+  clearButton: {
+    marginLeft: 8,
+    padding: 4,
+  },
 });

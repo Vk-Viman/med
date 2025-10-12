@@ -27,7 +27,8 @@ module.exports = ({ config }) => {
         },
       },
       android: {
-        package: 'com.vkviman.med',
+        // Must match google-services.json android_client_info.package_name
+        package: 'io.github.vkviman.calmspace',
         adaptiveIcon: {
           // Use the same brand icon for single-color mask; Android will mask this to a squircle/circle as needed
           foregroundImage: './assets/icon.png',

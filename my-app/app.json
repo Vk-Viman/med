@@ -26,8 +26,8 @@
         ]
       }
     },
-    "android": {
-        "package": "com.vkviman.med",
+  "android": {
+    "package": "io.github.vkviman.calmspace",
         "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",

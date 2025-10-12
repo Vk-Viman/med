@@ -120,7 +120,7 @@ export async function fetchWithRetry(url, options = {}, retryConfig = {}) {
       if (attempt < config.maxRetries) {
         const delay = calculateRetryDelay(attempt, config);
         if (__DEV__) {
-          console.log(`Retrying request (attempt ${attempt + 1}/${config.maxRetries}) after ${delay}ms...`);
+          console.log(`🔄 Retry attempt ${attempt + 1}/${config.maxRetries} after ${delay}ms...`);
         }
         await new Promise(resolve => setTimeout(resolve, delay));
       }

@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState, useRef } from "react";
+﻿import React, { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, TextInput, Alert, ActivityIndicator, RefreshControl, Switch, Animated, Platform, AccessibilityInfo, InteractionManager, findNodeHandle } from "react-native";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import GradientBackground from "../src/components/GradientBackground";
@@ -198,20 +198,28 @@ export default function WellnessReport() {
     }catch(e){ Alert.alert('Error', e.message); }
   };
 
-  // Build chart data from timeframe entries
-  const filteredTf = moodFilter ? tfEntries.filter(e=>e.mood===moodFilter) : tfEntries;
-  const chartBase = filteredTf.filter(e => e.createdAt?.seconds).map(e => {
-    const date = new Date(e.createdAt.seconds * 1000);
-    const raw = (typeof e.stress === 'string') ? parseFloat(e.stress) : e.stress;
-    const stress = Number.isFinite(raw) ? raw : 0;
-    return { date, stress };
-  });
+  // Build chart data from timeframe entries - MEMOIZED
+  const filteredTf = useMemo(() => 
+    moodFilter ? tfEntries.filter(e=>e.mood===moodFilter) : tfEntries,
+    [tfEntries, moodFilter]
+  );
+  
+  const chartBase = useMemo(() => 
+    filteredTf.filter(e => e.createdAt?.seconds).map(e => {
+      const date = new Date(e.createdAt.seconds * 1000);
+      const raw = (typeof e.stress === 'string') ? parseFloat(e.stress) : e.stress;
+      const stress = Number.isFinite(raw) ? raw : 0;
+      return { date, stress };
+    }),
+    [filteredTf]
+  );
+  
   // dynamic label thinning
   const labelEvery = chartBase.length > 10 ? Math.ceil(chartBase.length / 7) : 1;
-  const fullChartData = {
+  const fullChartData = useMemo(() => ({
     labels: chartBase.map((p,i)=> i % labelEvery === 0 ? `${p.date.getDate()}/${p.date.getMonth()+1}`: ''),
     datasets: [{ data: chartBase.map(p=>p.stress) }]
-  };
+  }), [chartBase, labelEvery]);
 
   // Helper to rebuild animated dataset from current animated values
   const rebuildAnimatedDataset = () => {
@@ -247,13 +255,25 @@ export default function WellnessReport() {
     return ()=>{ pointListeners.current.forEach(unsub => typeof unsub === 'function' && unsub()); };
   }, [chartBase.length]);
 
-  // Summary stats
-  const avgNum = chartBase.length ? (chartBase.reduce((a,b)=>a+b.stress,0)/chartBase.length) : null;
+  // Summary stats - MEMOIZED
+  const avgNum = useMemo(() => 
+    chartBase.length ? (chartBase.reduce((a,b)=>a+b.stress,0)/chartBase.length) : null,
+    [chartBase]
+  );
   const avgStress = avgNum !== null ? avgNum.toFixed(1) : '-';
-  const variance = avgNum !== null ? (chartBase.reduce((acc,p)=> acc + Math.pow(p.stress - avgNum, 2), 0) / chartBase.length) : null;
+  const variance = useMemo(() => 
+    avgNum !== null ? (chartBase.reduce((acc,p)=> acc + Math.pow(p.stress - avgNum, 2), 0) / chartBase.length) : null,
+    [chartBase, avgNum]
+  );
   const varianceStr = variance !== null ? variance.toFixed(2) : '-';
-  const moodFreq = filteredTf.reduce((acc,e)=>{ acc[e.mood] = (acc[e.mood]||0)+1; return acc; }, {});
-  const topMood = Object.keys(moodFreq).length ? Object.entries(moodFreq).sort((a,b)=>b[1]-a[1])[0] : null;
+  const moodFreq = useMemo(() => 
+    filteredTf.reduce((acc,e)=>{ acc[e.mood] = (acc[e.mood]||0)+1; return acc; }, {}),
+    [filteredTf]
+  );
+  const topMood = useMemo(() => 
+    Object.keys(moodFreq).length ? Object.entries(moodFreq).sort((a,b)=>b[1]-a[1])[0] : null,
+    [moodFreq]
+  );
   // Streak: consecutive days using filtered set (respects mood filter)
   let streak = 0;
   if(chartBase.length){
@@ -268,33 +288,42 @@ export default function WellnessReport() {
     }
   }
 
-  // Median / Min / Max
-  let median = '-'; let minStress='-'; let maxStress='-';
-  if(chartBase.length){
-    const values = chartBase.map(p=>p.stress).sort((a,b)=>a-b);
-    const mid = Math.floor(values.length/2);
-    median = values.length %2 ? values[mid] : ((values[mid-1]+values[mid])/2).toFixed(1);
-    minStress = Math.min(...values);
-    maxStress = Math.max(...values);
-  }
+  // Median / Min / Max - MEMOIZED
+  const { median, minStress, maxStress } = useMemo(() => {
+    let median = '-'; let minStress='-'; let maxStress='-';
+    if(chartBase.length){
+      const values = chartBase.map(p=>p.stress).sort((a,b)=>a-b);
+      const mid = Math.floor(values.length/2);
+      median = values.length %2 ? values[mid] : ((values[mid-1]+values[mid])/2).toFixed(1);
+      minStress = Math.min(...values);
+      maxStress = Math.max(...values);
+    }
+    return { median, minStress, maxStress };
+  }, [chartBase]);
 
-  // Time-of-day pattern: average stress by 4 buckets
-  const todBuckets = { Night:{sum:0,count:0}, Morning:{sum:0,count:0}, Afternoon:{sum:0,count:0}, Evening:{sum:0,count:0} };
-  chartBase.forEach(p=>{
-    const h = p.date.getHours();
-    let k = 'Night';
-    if(h>=6 && h<12) k='Morning'; else if(h>=12 && h<18) k='Afternoon'; else if(h>=18 && h<24) k='Evening';
-    todBuckets[k].sum += p.stress; todBuckets[k].count += 1;
-  });
-  const todLabels = ['Night','Morning','Afternoon','Evening'];
-  const todValues = todLabels.map(k=> todBuckets[k].count ? Number((todBuckets[k].sum/todBuckets[k].count).toFixed(2)) : 0);
+  // Time-of-day pattern - MEMOIZED
+  const { todLabels, todValues } = useMemo(() => {
+    const todBuckets = { Night:{sum:0,count:0}, Morning:{sum:0,count:0}, Afternoon:{sum:0,count:0}, Evening:{sum:0,count:0} };
+    chartBase.forEach(p=>{
+      const h = p.date.getHours();
+      let k = 'Night';
+      if(h>=6 && h<12) k='Morning'; else if(h>=12 && h<18) k='Afternoon'; else if(h>=18 && h<24) k='Evening';
+      todBuckets[k].sum += p.stress; todBuckets[k].count += 1;
+    });
+    const todLabels = ['Night','Morning','Afternoon','Evening'];
+    const todValues = todLabels.map(k=> todBuckets[k].count ? Number((todBuckets[k].sum/todBuckets[k].count).toFixed(2)) : 0);
+    return { todLabels, todValues };
+  }, [chartBase]);
 
-  // Weekly pattern (Sun..Sat)
-  const weekdayLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  const weekdaySums = Array(7).fill(0);
-  const weekdayCounts = Array(7).fill(0);
-  chartBase.forEach(p=>{ const d = p.date.getDay(); weekdaySums[d]+=p.stress; weekdayCounts[d]++; });
-  const weekdayAvg = weekdaySums.map((s,i)=> weekdayCounts[i] ? Number((s/weekdayCounts[i]).toFixed(2)) : 0);
+  // Weekly pattern - MEMOIZED
+  const { weekdayLabels, weekdayAvg } = useMemo(() => {
+    const weekdayLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const weekdaySums = Array(7).fill(0);
+    const weekdayCounts = Array(7).fill(0);
+    chartBase.forEach(p=>{ const d = p.date.getDay(); weekdaySums[d]+=p.stress; weekdayCounts[d]++; });
+    const weekdayAvg = weekdaySums.map((s,i)=> weekdayCounts[i] ? Number((s/weekdayCounts[i]).toFixed(2)) : 0);
+    return { weekdayLabels, weekdayAvg };
+  }, [chartBase]);
 
   // Hourly heatmap (0-23)
   const hourSums = Array(24).fill(0);
