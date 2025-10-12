@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, Alert, ScrollView, Linking } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../src/theme/ThemeProvider';
+import GradientCard from '../../src/components/GradientCard';
 import { listPrivacyRequests, markPrivacyRequestDone, deleteAllUserMoods, adminGenerateExportArtifact, eraseUserContent, adminSetProcessingRestriction, adminSetAnalyticsOptOut, anonymizeUserPosts, adminUpdatePrivacyRequest } from '../../src/services/admin';
 import PrimaryButton from '../../src/components/PrimaryButton';
+import ShimmerCard from '../../src/components/ShimmerCard';
 
 export default function PrivacyCenter(){
   const { theme } = useTheme();
@@ -35,16 +38,29 @@ export default function PrivacyCenter(){
   const empty = !loading && (!items || items.length===0);
   return (
     <ScrollView style={{ flex:1, backgroundColor: theme.bg }} contentContainerStyle={{ padding:12 }}>
-      <Text style={{ color: theme.text, fontWeight:'800', fontSize:28, marginBottom:16, letterSpacing:0.3 }}>Privacy Request Center</Text>
+      <ShimmerCard colors={['#E8EAF6', '#C5CAE9', '#9FA8DA']} shimmerSpeed={3000}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(92, 107, 192, 0.2)' }}>
+          <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#E8EAF6', justifyContent: 'center', alignItems: 'center', shadowColor: '#5C6BC0', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 3 }}>
+            <Ionicons name="lock-closed" size={28} color="#5C6BC0" />
+          </View>
+          <View style={{ flex: 1, marginLeft: 16 }}>
+            <Text style={{ fontSize: 24, fontWeight: '800', letterSpacing: 0.3, color: theme.text }}>Privacy Center</Text>
+            <Text style={{ fontSize: 14, fontWeight: '500', marginTop: 4, color: theme.textMuted }}>GDPR & User Data Requests</Text>
+          </View>
+        </View>
+      </ShimmerCard>
       {loading && <Text style={{ color: theme.text, fontSize:15 }}>Loading...</Text>}
       {empty && <Text style={{ color: theme.textMuted, fontSize:15 }}>No open requests.</Text>}
       {!empty && items.map(item => (
-        <View key={item.id} style={{ backgroundColor: theme.card, padding:18, borderRadius:16, marginBottom:14, shadowColor:'#000', shadowOpacity:0.08, shadowRadius:8, elevation:3, borderWidth:1, borderColor:'rgba(0,0,0,0.05)' }}>
-          <Text style={{ color: theme.text, fontWeight:'700' }}>{(item.type||'').toUpperCase()} request</Text>
-          <Text style={{ color: theme.textMuted, fontSize:12 }}>User: {item.uid}</Text>
+        <GradientCard key={item.id} colors={['#5C6BC0', '#3F51B5']} style={{ marginBottom: 14 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+            <Ionicons name="document-text" size={20} color="#fff" />
+            <Text style={{ color: '#fff', fontWeight:'800', fontSize: 16, marginLeft: 8 }}>{(item.type||'').toUpperCase()} Request</Text>
+          </View>
+          <Text style={{ color: '#fff', opacity: 0.9, fontSize:12 }}>User: {item.uid}</Text>
           {!!item.fileUrl && (
-            <Text style={{ color: '#0288D1', fontSize:12 }} onPress={()=> Linking.openURL(item.fileUrl)}>
-              Open export file
+            <Text style={{ color: '#fff', fontSize:12, textDecorationLine: 'underline', marginTop: 4 }} onPress={()=> Linking.openURL(item.fileUrl)}>
+              📎 Open export file
             </Text>
           )}
           <View style={{ height:8 }} />
@@ -72,7 +88,7 @@ export default function PrivacyCenter(){
           </View>
           <View style={{ height:8 }} />
           <PrimaryButton title='Anonymize User Posts' variant='secondary' onPress={()=> runAnonymize(item.uid)} />
-        </View>
+        </GradientCard>
       ))}
     </ScrollView>
   );

@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, Alert, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import PrimaryButton from '../../src/components/PrimaryButton';
+import GradientCard from '../../src/components/GradientCard';
 import { db, auth } from '../../firebase/firebaseConfig';
 import { collection, getDocs, query, orderBy, limit, startAfter, doc } from 'firebase/firestore';
 import { inboxAdd } from '../../src/services/inbox';
+import ShimmerCard from '../../src/components/ShimmerCard';
+import PulseButton from '../../src/components/PulseButton';
 
 /* Broadcast screen
    Fan-out an announcement/digest to all users by iterating the users collection in pages.
@@ -97,7 +101,15 @@ export default function AdminBroadcast(){
   return (
     <SafeAreaView style={{ flex:1, backgroundColor: theme.bg }}>
       <ScrollView contentContainerStyle={{ padding:16 }}>
-        <Text style={{ fontSize:28, fontWeight:'800', color: theme.text, marginBottom:16, letterSpacing:0.3 }}>Broadcast Digest</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(38, 166, 154, 0.2)' }}>
+          <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#E0F2F1', justifyContent: 'center', alignItems: 'center', shadowColor: '#26A69A', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 3 }}>
+            <Ionicons name="megaphone" size={28} color="#26A69A" />
+          </View>
+          <View style={{ flex: 1, marginLeft: 16 }}>
+            <Text style={{ fontSize: 24, fontWeight: '800', letterSpacing: 0.3, color: theme.text }}>Broadcast Messages</Text>
+            <Text style={{ fontSize: 14, fontWeight: '500', marginTop: 4, color: theme.textMuted }}>Send Announcements to All Users</Text>
+          </View>
+        </View>
         <Text style={{ color: theme.textMuted, marginBottom:20, fontSize:15, lineHeight:22 }}>Send a one-time inbox notification to every user. Use sparingly. This runs client-side and pages through users (no Cloud Functions).</Text>
         <Text style={{ fontWeight:'700', color: theme.text, fontSize:15, marginBottom:6, letterSpacing:0.2 }}>Title</Text>
         <TextInput value={title} onChangeText={setTitle} placeholder='Announcement title' placeholderTextColor={theme.textMuted} style={{ borderWidth:2, borderColor: theme.border||'#90CAF9', borderRadius:14, padding:14, color: theme.text, marginTop:4, marginBottom:16, fontSize:15, shadowColor:'#000', shadowOpacity:0.04, shadowRadius:4, elevation:1 }} />

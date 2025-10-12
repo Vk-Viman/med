@@ -28,6 +28,11 @@ import { getCachedAggStats, setCachedAggStats } from '../src/utils/statsCache';
 import GradientCard from "../src/components/GradientCard";
 import AnimatedButton from "../src/components/AnimatedButton";
 import ProgressRing from "../src/components/ProgressRing";
+import ShimmerCard from "../src/components/ShimmerCard";
+import FloatingActionButton from "../src/components/FloatingActionButton";
+import { getMoodEmoji, formatDateTime } from "../src/utils/constants";
+import { handleError, createErrorHandler } from "../src/utils/errorHandler";
+import SkeletonLoader from "../src/components/SkeletonLoader";
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -412,11 +417,11 @@ export default function HomeScreen() {
           <Text accessibilityLabel='Guided Meditation and Stress Relief' style={[styles.tagline, { color: theme.textMuted }]}>Guided Meditation & Stress Relief</Text>
         </View>
 
-        {/* Hero Section with Progress Rings */}
-        <GradientCard 
+        {/* Hero Section with Progress Rings - Premium Shimmer Effect */}
+        <ShimmerCard 
           colors={['#4FC3F7', '#0288D1', '#01579B']} 
           style={styles.heroCard}
-          gradientProps={{ start: { x: 0, y: 0 }, end: { x: 1, y: 1 } }}
+          shimmerSpeed={3500}
         >
           <Text style={styles.heroQuote}>"Peace comes from within. Do not seek it without."</Text>
           <Text style={styles.heroAuthor}>— Buddha</Text>
@@ -467,12 +472,15 @@ export default function HomeScreen() {
               </View>
             </View>
           </View>
-        </GradientCard>
+        </ShimmerCard>
         
   <Text ref={todayHeaderRef} style={[styles.sectionLabel,{ color: theme.textMuted }]} accessibilityRole='header' accessibilityLabel='Today'>TODAY</Text>
   <Card style={[styles.snapshotCard, { backgroundColor: (mode === 'dark' ? moodTintDark(summary.latest?.mood) : moodTint(summary.latest?.mood)) }]}> 
           {loading ? (
-            <View style={styles.loadingRow}><ActivityIndicator color={theme.primary} size="small" /><Text style={[styles.loadingTxt,{ color: theme.textMuted }]}> Loading summary...</Text></View>
+            <View style={{ paddingVertical: 8 }}>
+              <SkeletonLoader height={60} style={{ marginBottom: 12 }} />
+              <SkeletonLoader height={40} width="70%" />
+            </View>
           ) : (
             <>
               {!summary.latest ? (
@@ -591,25 +599,75 @@ export default function HomeScreen() {
           )}
         </View>
 
-  <Text style={[styles.sectionLabel,{ color: theme.textMuted }]} accessibilityRole='header' accessibilityLabel='Tools'>TOOLS</Text>
+  <Text style={[styles.sectionLabel,{ color: theme.textMuted }]} accessibilityRole='header' accessibilityLabel='Your Achievements'>YOUR ACHIEVEMENTS</Text>
         {!!badges.length && (
-          <View style={[styles.badgesRow, { backgroundColor: theme.card }]}>
-            {badges.map(b => (
-              <View key={b.id} style={styles.badgePill}>
-                <Text style={styles.badgeEmoji}>{badgeEmoji(b.id)}</Text>
-                <Text style={styles.badgeText}>{b.name || b.id}</Text>
-              </View>
-            ))}
+          <View style={{ marginBottom: spacing.md }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {badges.map((b, index) => {
+                // Check if badge is recent (within last 24 hours)
+                const isRecent = b.awardedAt?.seconds && (Date.now() - b.awardedAt.seconds * 1000) < 86400000;
+                
+                if (isRecent && index < 3) {
+                  // Premium shimmer for recent badges
+                  return (
+                    <ShimmerCard 
+                      key={b.id}
+                      colors={['#FFA726', '#FB8C00', '#F57C00']} 
+                      style={{ marginRight:8, paddingHorizontal:14, paddingVertical:10, borderRadius:20, minWidth:120 }}
+                      shimmerSpeed={3000}
+                    >
+                      <View style={{ flexDirection:'row', alignItems:'center' }}>
+                        <Text style={{ fontSize:20, marginRight:6 }}>{badgeEmoji(b.id)}</Text>
+                        <View>
+                          <Text style={{ fontSize:12, fontWeight:'700', color:'#fff' }}>{b.name || b.id}</Text>
+                          <Text style={{ fontSize:10, color:'#FFE0B2', marginTop:2 }}>✨ New!</Text>
+                        </View>
+                      </View>
+                    </ShimmerCard>
+                  );
+                }
+                
+                // Regular badge display
+                return (
+                  <View key={b.id} style={[styles.badgePill, { marginRight:8 }]}>
+                    <Text style={styles.badgeEmoji}>{badgeEmoji(b.id)}</Text>
+                    <Text style={styles.badgeText}>{b.name || b.id}</Text>
+                  </View>
+                );
+              })}
+            </ScrollView>
           </View>
         )}
-        {/* Progress-to-next chips to motivate */}
-        <View style={[styles.badgesRow, { backgroundColor: theme.card }]}>
+        {/* Progress-to-next chips with enhanced visuals */}
+        <Text style={[styles.sectionLabel,{ color: theme.textMuted, marginTop:spacing.md }]}>NEXT MILESTONES</Text>
+        <View style={{ flexDirection:'row', flexWrap:'wrap', gap:8, marginBottom:spacing.md }}>
           {(() => {
             const nm = nextMinuteThreshold(aggStats.totalMinutes||0);
             if(nm){
               const pct = progressTowards(nm, aggStats.totalMinutes||0);
+              const isClose = pct >= 80;
+              
+              if (isClose) {
+                return (
+                  <ShimmerCard 
+                    key="minutes"
+                    colors={['#42A5F5', '#1E88E5', '#1565C0']} 
+                    style={{ flex:1, minWidth:150, paddingHorizontal:14, paddingVertical:10, borderRadius:16 }}
+                    shimmerSpeed={2500}
+                  >
+                    <View style={{ flexDirection:'row', alignItems:'center' }}>
+                      <Text style={{ fontSize:20, marginRight:8 }}>⏱️</Text>
+                      <View>
+                        <Text style={{ fontSize:11, fontWeight:'700', color:'#fff' }}>{pct}% to {nm}m</Text>
+                        <Text style={{ fontSize:9, color:'#E3F2FD', marginTop:2 }}>Almost there!</Text>
+                      </View>
+                    </View>
+                  </ShimmerCard>
+                );
+              }
+              
               return (
-                <View style={styles.badgePill}>
+                <View key="minutes" style={[styles.badgePill, { flex:1, minWidth:150 }]}>
                   <Text style={styles.badgeEmoji}>⏱️</Text>
                   <Text style={styles.badgeText}>{pct}% to {nm}m</Text>
                 </View>
@@ -621,8 +679,29 @@ export default function HomeScreen() {
             const ns = nextStreakThreshold(aggStats.streak||0);
             if(ns){
               const pct = progressTowards(ns, aggStats.streak||0);
+              const isClose = pct >= 80;
+              
+              if (isClose) {
+                return (
+                  <ShimmerCard 
+                    key="streak"
+                    colors={['#FF7043', '#F4511E', '#E64A19']} 
+                    style={{ flex:1, minWidth:150, paddingHorizontal:14, paddingVertical:10, borderRadius:16 }}
+                    shimmerSpeed={2500}
+                  >
+                    <View style={{ flexDirection:'row', alignItems:'center' }}>
+                      <Text style={{ fontSize:20, marginRight:8 }}>🔥</Text>
+                      <View>
+                        <Text style={{ fontSize:11, fontWeight:'700', color:'#fff' }}>{pct}% to {ns}-day</Text>
+                        <Text style={{ fontSize:9, color:'#FFE0B2', marginTop:2 }}>Keep it up!</Text>
+                      </View>
+                    </View>
+                  </ShimmerCard>
+                );
+              }
+              
               return (
-                <View style={styles.badgePill}>
+                <View key="streak" style={[styles.badgePill, { flex:1, minWidth:150 }]}>
                   <Text style={styles.badgeEmoji}>🔥</Text>
                   <Text style={styles.badgeText}>{pct}% to {ns}-day</Text>
                 </View>
@@ -632,13 +711,10 @@ export default function HomeScreen() {
           })()}
         </View>
         <View style={styles.secondaryList}>
-          <PrimaryButton accessibilityLabel='Open achievements' title="Achievements" onPress={()=> navigate('/achievements')} variant='secondary' fullWidth left={<Ionicons name='trophy-outline' size={18} color='#01579B' />} />
-          <View style={{ height: spacing.sm }} />
-          <PrimaryButton title="Reminders" onPress={()=> navigate('/notifications')} variant='secondary' fullWidth left={<Ionicons name='notifications-outline' size={18} color='#01579B' />} />
-          <View style={{ height: spacing.sm }} />
-          <PrimaryButton title="Biometric Login" onPress={()=> navigate('/biometricLogin')} variant='secondary' fullWidth left={<Ionicons name='finger-print-outline' size={18} color='#01579B' />} />
-          <View style={{ height: spacing.sm }} />
-          <PrimaryButton title="Settings" onPress={()=> navigate('/settings')} variant='secondary' fullWidth left={<Ionicons name='settings-outline' size={18} color='#01579B' />} />
+          <Pressable style={({ pressed })=> [styles.gridCard, pressed && styles.gridPressed]} onPress={()=> navigate('/achievements')} accessibilityLabel="Open achievements" accessibilityRole='button'>
+            <Ionicons name='trophy-outline' size={26} color={theme.primary} />
+            <Text style={[styles.gridLabel,{ color: theme.text }]}>Achievements</Text>
+          </Pressable>
         </View>
         <View style={{ height: spacing.xl * 2 }} />
         </ScrollView>
@@ -648,6 +724,15 @@ export default function HomeScreen() {
             <Text style={[styles.toastText,{ color: theme.text }]}>Updated</Text>
           </View>
         )}
+        
+        {/* Floating Action Button for Quick Mood Logging */}
+        <FloatingActionButton
+          icon="add-circle"
+          onPress={() => navigate('/moodTracker', 'heavy')}
+          colors={['#4FC3F7', '#0288D1']}
+          position="bottom-right"
+          bottom={80}
+        />
       </SafeAreaView>
     </GradientBackground>
   );

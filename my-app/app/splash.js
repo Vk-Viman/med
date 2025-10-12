@@ -4,6 +4,7 @@ import * as Animatable from "react-native-animatable";
 import GradientBackground from "../src/components/GradientBackground";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import ShimmerCard from "../src/components/ShimmerCard";
 
 export default function SplashScreen() {
   const router = useRouter();
@@ -24,17 +25,19 @@ export default function SplashScreen() {
   return (
     <GradientBackground>
       <View style={styles.container}>
-        <Animatable.Image
-          animation="fadeIn"
-          duration={800}
-          delay={200}
-          source={require("../assets/splash-icon.png")}
-          style={styles.logo}
-          resizeMode="contain"
-        />
-        <Animatable.Text animation="fadeInUp" duration={800} delay={300} style={styles.title}>
-          Calm Space
-        </Animatable.Text>
+        <ShimmerCard colors={['#E1F5FE', '#B3E5FC', '#81D4FA']} shimmerSpeed={3500}>
+          <Animatable.Image
+            animation="fadeIn"
+            duration={800}
+            delay={200}
+            source={require("../assets/splash-icon.png")}
+            style={styles.logo}
+            resizeMode="contain"
+          />
+          <Animatable.Text animation="fadeInUp" duration={800} delay={300} style={styles.title}>
+            Calm Space
+          </Animatable.Text>
+        </ShimmerCard>
       </View>
     </GradientBackground>
   );

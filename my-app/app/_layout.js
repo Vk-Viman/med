@@ -14,6 +14,8 @@ import { DeviceEventEmitter as RNEmitter } from 'react-native';
 import { auth } from "../firebase/firebaseConfig";
 import { clearUserSubscriptions } from '../src/utils/safeSnapshot';
 import { onAuthStateChanged } from 'firebase/auth';
+import ErrorBoundary from "../src/components/ErrorBoundary";
+import OfflineIndicator from "../src/components/OfflineIndicator";
 
 const AUTO_LOCK_KEY = 'privacy_auto_lock_seconds_v1';
 const LAST_ROUTE_BEFORE_LOCK_KEY = 'last_route_before_lock_v1';
@@ -216,7 +218,7 @@ function ActivityWrapper({ children }){
   );
 }
 
-export default function Layout() {
+function Layout() {
   const router = useRouter();
   const pathname = usePathname();
   const [isBootstrapping, setIsBootstrapping] = useState(true);
@@ -365,7 +367,17 @@ export default function Layout() {
       </Stack>
       )}
       </ActivityWrapper>
+      <OfflineIndicator />
     </ThemeProvider>
+  );
+}
+
+// Wrap root in ErrorBoundary and export as default
+export default function RootLayoutWithErrorBoundary() {
+  return (
+    <ErrorBoundary>
+      <Layout />
+    </ErrorBoundary>
   );
 }
 

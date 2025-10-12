@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Switch, StyleSheet, Alert, TextInput, ScrollView } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import PrimaryButton from '../../src/components/PrimaryButton';
 import { getAdminConfig, setAdminConfigPatch, subscribeAdminConfig } from '../../src/services/config';
+import ShimmerCard from '../../src/components/ShimmerCard';
 
 export default function AdminSettings(){
   const { theme } = useTheme();
@@ -33,7 +35,18 @@ export default function AdminSettings(){
   );
   return (
     <ScrollView style={{ flex:1, backgroundColor: theme.bg }} contentContainerStyle={{ padding:16, paddingBottom:32 }} keyboardShouldPersistTaps='handled'>
-      <Text style={[styles.h1, { color: theme.text }]}>Admin Settings</Text>
+      <ShimmerCard colors={['#CFD8DC', '#B0BEC5', '#90A4AE']} shimmerSpeed={3000}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(96, 125, 139, 0.2)' }}>
+          <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#ECEFF1', justifyContent: 'center', alignItems: 'center', shadowColor: '#607D8B', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 3 }}>
+            <Ionicons name="settings" size={28} color="#607D8B" />
+          </View>
+          <View style={{ flex: 1, marginLeft: 16 }}>
+            <Text style={{ fontSize: 24, fontWeight: '800', letterSpacing: 0.3, color: theme.text }}>App Settings</Text>
+            <Text style={{ fontSize: 14, fontWeight: '500', marginTop: 4, color: theme.textMuted }}>Configure Modules & Permissions</Text>
+          </View>
+        </View>
+      </ShimmerCard>
+      <Text style={[styles.h1, { color: theme.text }]}>Module Toggles</Text>
       <Text style={{ color: theme.textMuted, marginBottom:12 }}>Enable/disable modules and advanced tools visible to users.</Text>
       <Row label='Allow Exports' value={cfg.allowExports} onValueChange={toggle('allowExports')} />
       <Row label='Allow Retention (Auto-purge)' value={cfg.allowRetention} onValueChange={toggle('allowRetention')} />

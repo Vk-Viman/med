@@ -10,6 +10,7 @@ import { doc, getDoc } from "firebase/firestore";
 import GradientCard from "../src/components/GradientCard";
 import AnimatedButton from "../src/components/AnimatedButton";
 import IconBadge from "../src/components/IconBadge";
+import ShimmerCard from "../src/components/ShimmerCard";
 
 export default function ReminderScreen() {
   const [suggestedTimes, setSuggestedTimes] = useState([]);
@@ -75,18 +76,20 @@ export default function ReminderScreen() {
     <SafeAreaView style={styles.container}>
       <Animated.View style={{ opacity: fadeAnim }}>
         {/* Header with icon */}
-        <View style={styles.header}>
-          <IconBadge 
-            name="notifications" 
-            size={32} 
-            color="#0288D1"
-            gradientColors={['#E1F5FE', '#B3E5FC']}
-          />
-          <View style={{ marginLeft: 16, flex: 1 }}>
-            <Text style={styles.title}>Reminder Settings</Text>
-            <Text style={styles.subtitle}>Schedule mindful moments throughout your day</Text>
+        <ShimmerCard colors={['#E1F5FE', '#B3E5FC', '#81D4FA']} shimmerSpeed={3000}>
+          <View style={styles.header}>
+            <IconBadge 
+              name="notifications" 
+              size={32} 
+              color="#0288D1"
+              gradientColors={['#E1F5FE', '#B3E5FC']}
+            />
+            <View style={{ marginLeft: 16, flex: 1 }}>
+              <Text style={styles.title}>Reminder Settings</Text>
+              <Text style={styles.subtitle}>Schedule mindful moments throughout your day</Text>
+            </View>
           </View>
-        </View>
+        </ShimmerCard>
 
         {suggestedTimes.length > 0 && (
           <GradientCard colors={['#E1F5FE', '#F3E5F5']} style={styles.card}>

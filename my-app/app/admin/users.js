@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../src/theme/ThemeProvider';
+import GradientCard from '../../src/components/GradientCard';
 import { listUsers, updateUserRole, adminBanUser, adminUnbanUser } from '../../src/services/admin';
 import { auth } from '../../firebase/firebaseConfig';
+import ShimmerCard from '../../src/components/ShimmerCard';
 
 export default function AdminUsers(){
   const router = useRouter();
@@ -16,6 +19,18 @@ export default function AdminUsers(){
   const filtered = users.filter(u => (u.email||'').toLowerCase().includes(q.toLowerCase()) || (u.displayName||'').toLowerCase().includes(q.toLowerCase()));
   return (
     <View style={{ flex:1, backgroundColor: theme.bg }}>
+      {/* Professional Header */}
+      <ShimmerCard colors={['#E1F5FE', '#B3E5FC', '#81D4FA']} shimmerSpeed={3000}>
+        <View style={[styles.header, { borderBottomColor: theme.bg === '#0B1722' ? '#1E3A4C' : '#E0E0E0' }]}>
+          <View style={styles.iconBadge}>
+            <Ionicons name="people" size={28} color="#0288D1" />
+          </View>
+          <View style={{ flex: 1, marginLeft: 16 }}>
+            <Text style={[styles.title, { color: theme.text }]}>User Management</Text>
+            <Text style={[styles.subtitle, { color: theme.textMuted }]}>Manage roles and permissions</Text>
+          </View>
+        </View>
+      </ShimmerCard>
       <View style={{ padding:12 }}>
         <TextInput placeholder='Search by name or email' placeholderTextColor={theme.textMuted} value={q} onChangeText={setQ} style={[styles.input, { color: theme.text, borderColor: '#90CAF9', backgroundColor: theme.bg === '#0B1722' ? '#0F1E2C' : '#ffffffAA' }]} />
       </View>
@@ -96,8 +111,39 @@ export default function AdminUsers(){
   );
 }
 const styles = StyleSheet.create({
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+  },
+  iconBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#E1F5FE',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#0288D1',
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  subtitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginTop: 4,
+    letterSpacing: 0.2,
+  },
   input:{ height:52, borderWidth:2, borderRadius:14, paddingHorizontal:16, fontSize:15, shadowColor:'#000', shadowOpacity:0.04, shadowRadius:4, elevation:1 },
-  row:{ padding:18, borderRadius:16, shadowColor:'#000', shadowOpacity:0.08, shadowRadius:8, elevation:3, borderWidth:1, borderColor:'rgba(0,0,0,0.05)', marginBottom:4 },
+  row:{ padding:18, borderRadius:16, shadowColor:'#0288D1', shadowOpacity:0.12, shadowRadius:10, elevation:4, borderWidth:1, borderColor:'rgba(2,136,209,0.1)', marginBottom:8 },
   name:{ fontSize:16, fontWeight:'800', letterSpacing:0.2 }
 });
 

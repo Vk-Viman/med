@@ -27,6 +27,8 @@ import CryptoJS from "crypto-js"; // legacy encryption retained for now
 import { createMoodEntry, flushQueue } from "../src/services/moodEntries";
 import ConfettiView from "../src/components/ConfettiView";
 import AnimatedButton from "../src/components/AnimatedButton";
+import PulseButton from "../src/components/PulseButton";
+import ShimmerCard from "../src/components/ShimmerCard";
 // Ensure CryptoJS uses secure RNG from crypto.getRandomValues
 try {
   const originalRandom = CryptoJS.lib.WordArray.random;
@@ -430,10 +432,12 @@ export default function MoodTracker() {
           <MarkdownPreview text={note} />
         </View>
       )}
-      <AnimatedButton 
+      <PulseButton 
         onPress={saveEntry} 
-        disabled={!mood || loading}
-        hapticStyle="medium"
+        enabled={mood && !loading}
+        pulseColor="rgba(2, 136, 209, 0.4)"
+        pulseScale={1.12}
+        haptic={true}
       >
         <LinearGradient
           colors={mood ? ['#0288D1', '#01579B'] : ['#B0BEC5', '#90A4AE']}
@@ -446,23 +450,22 @@ export default function MoodTracker() {
             {mood ? (loading ? 'Saving...' : 'Save Entry') : 'Pick a mood to save'}
           </Text>
         </LinearGradient>
-      </AnimatedButton>
+      </PulseButton>
       
       {showSuccess && (
         <Animated.View 
           style={[styles.successBadge, { transform: [{ scale: successScale }] }]} 
           pointerEvents='none'
         >
-          <LinearGradient
+          <ShimmerCard
             colors={['#66BB6A', '#43A047']}
+            shimmerSpeed={2000}
             style={styles.successGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
           >
             <Ionicons name="checkmark-circle" size={48} color="#fff" />
             <Text style={styles.successText}>Mood Logged!</Text>
             <Text style={styles.successSubtext}>Keep up the great work ✨</Text>
-          </LinearGradient>
+          </ShimmerCard>
         </Animated.View>
       )}
       

@@ -18,6 +18,8 @@ import { Alert } from 'react-native';
 import { getMeditationById } from '../src/services/meditations';
 import GradientCard from "../src/components/GradientCard";
 import ProgressRing from "../src/components/ProgressRing";
+import ShimmerCard from "../src/components/ShimmerCard";
+import FloatingActionButton from "../src/components/FloatingActionButton";
 
 export default function MeditationPlayerScreen() {
   const [selectedMeditation, setSelectedMeditation] = useState(null);
@@ -197,9 +199,10 @@ export default function MeditationPlayerScreen() {
           </View>
         </View>
         
-        <GradientCard 
+        <ShimmerCard 
           colors={['#66BB6A', '#43A047', '#2E7D32']} 
           style={styles.todayCard}
+          shimmerSpeed={3500}
         >
           <View style={styles.todayContent}>
             <Text style={styles.todayLabel}>Today's Practice</Text>
@@ -220,11 +223,12 @@ export default function MeditationPlayerScreen() {
               </View>
             </View>
           </View>
-        </GradientCard>
+        </ShimmerCard>
         {selectedMeditation && (
-          <GradientCard 
+          <ShimmerCard 
             colors={['#E1F5FE', '#B3E5FC', '#81D4FA']} 
             style={styles.selectedCard}
+            shimmerSpeed={4000}
           >
             {/* Breathing circle animation */}
             {isBreathing && (
@@ -265,7 +269,7 @@ export default function MeditationPlayerScreen() {
                 <Text style={styles.selectedCategory}>{selectedMeditation?.category || 'Meditation'}</Text>
               </View>
             </View>
-          </GradientCard>
+          </ShimmerCard>
         )}
         {favoriteMeds.length > 0 && (
           <View style={{ marginBottom: spacing.md }}>
@@ -298,6 +302,26 @@ export default function MeditationPlayerScreen() {
           <Text style={styles.topBtnText}>↑ Top</Text>
         </TouchableOpacity>
       )}
+      
+      {/* Floating Action Button for Favorites */}
+      <FloatingActionButton
+        icon="heart"
+        onPress={() => {
+          if (selectedMeditation && !favoriteMeds.find(m => m.id === selectedMeditation.id)) {
+            Alert.alert('Favorite', `Add "${selectedMeditation.title}" to favorites?`, [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Add', onPress: async () => {
+                const newFavs = [...favoriteMeds, selectedMeditation];
+                setFavoriteMeds(newFavs);
+                await AsyncStorage.setItem(favKey, JSON.stringify(newFavs.map(m => m.id)));
+              }}
+            ]);
+          }
+        }}
+        colors={['#EC407A', '#D81B60']}
+        position="bottom-right"
+        bottom={80}
+      />
         </SafeAreaView>
       </GradientBackground>
   );

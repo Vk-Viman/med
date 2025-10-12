@@ -8,6 +8,8 @@ import Card from '../src/components/Card';
 import { recommendWeeklyPlan, mergeCompletionIntoPlan, getCompletedMinutesToday, savePlanToUserDoc } from '../src/services/planService';
 import GradientBackground from '../src/components/GradientBackground';
 import { Ionicons } from '@expo/vector-icons';
+import ShimmerCard from '../src/components/ShimmerCard';
+import SkeletonLoader from '../src/components/SkeletonLoader';
 
 export default function YourPlanScreen(){
   const router = useRouter();
@@ -55,16 +57,18 @@ export default function YourPlanScreen(){
     <GradientBackground>
       <Stack.Screen options={{ title: 'Your Plan', headerShown: true }} />
       <SafeAreaView style={[styles.container,{ backgroundColor:'transparent' }]}> 
-        <View style={styles.header}> 
-          <View style={{ flexDirection:'row', alignItems:'center' }}>
-            <Ionicons name="sparkles-outline" size={22} color={theme.primary} style={{ marginRight:8 }} />
-            <Text style={[styles.title,{ color: theme.text }]}>{title}</Text>
+        <ShimmerCard colors={['#F3E5F5', '#E1BEE7', '#CE93D8']} shimmerSpeed={3000}>
+          <View style={styles.header}> 
+            <View style={{ flexDirection:'row', alignItems:'center' }}>
+              <Ionicons name="sparkles-outline" size={22} color={theme.primary} style={{ marginRight:8 }} />
+              <Text style={[styles.title,{ color: theme.text }]}>{title}</Text>
+            </View>
+            <View style={{ flexDirection:'row', alignItems:'center' }}>
+              <PrimaryButton title={regenerating ? 'Regenerating…' : 'Regenerate'} onPress={onRegenerate} disabled={regenerating} style={{ marginRight:8 }} />
+              <PrimaryButton title="Settings" onPress={()=> router.push('/plan')} variant="secondary" />
+            </View>
           </View>
-          <View style={{ flexDirection:'row', alignItems:'center' }}>
-            <PrimaryButton title={regenerating ? 'Regenerating…' : 'Regenerate'} onPress={onRegenerate} disabled={regenerating} style={{ marginRight:8 }} />
-            <PrimaryButton title="Settings" onPress={()=> router.push('/plan')} variant="secondary" />
-          </View>
-        </View>
+        </ShimmerCard>
 
         <FlatList
         data={days}
@@ -91,9 +95,10 @@ export default function YourPlanScreen(){
           )}
           renderItem={({ item })=> (
             <TouchableOpacity activeOpacity={0.8} onPress={()=>{}}>
-              <Card style={{ padding:12, marginBottom:12 }}>
-                <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'center' }}>
-                  <Text style={[styles.day,{ color: theme.text }]}>{item.day}</Text>
+              <ShimmerCard colors={['#E1F5FE', '#B3E5FC', '#81D4FA']} shimmerSpeed={3200}>
+                <Card style={{ padding:12, marginBottom:12 }}>
+                  <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'center' }}>
+                    <Text style={[styles.day,{ color: theme.text }]}>{item.day}</Text>
                   <View style={{ flexDirection:'row', alignItems:'center' }}>
                     <Ionicons name="time-outline" size={16} color={theme.textMuted} />
                     <Text style={[styles.total,{ color: theme.textMuted }]}>{item.totalMinutes}m</Text>
@@ -108,7 +113,8 @@ export default function YourPlanScreen(){
                     <Text style={[styles.blockMeta,{ color: theme.textMuted }]}>{b.theme} • {b.minutes}m • {b.type}</Text>
                   </View>
                 ))}
-              </Card>
+                </Card>
+              </ShimmerCard>
             </TouchableOpacity>
           )}
           ListEmptyComponent={null}

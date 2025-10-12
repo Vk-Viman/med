@@ -14,6 +14,8 @@ import GradientCard from "../src/components/GradientCard";
 import { spacing, radius, shadow } from "../src/theme";
 import AppLogo from "../src/components/AppLogo";
 import { useTheme } from "../src/theme/ThemeProvider";
+import ShimmerCard from "../src/components/ShimmerCard";
+import PulseButton from "../src/components/PulseButton";
 
 export default function SignupScreen() {
   const { theme } = useTheme();
@@ -119,20 +121,26 @@ export default function SignupScreen() {
               },
             ]}
           >
-            {/* Logo Section */}
-            <View style={styles(theme).logoSection}>
-              <View style={styles(theme).logoCircle}>
-                <AppLogo size={48} />
+            {/* Logo Section with Shimmer */}
+            <ShimmerCard 
+              colors={['#E1F5FE', '#F3E5F5', '#E8EAF6']} 
+              style={{ marginBottom: spacing.lg, borderRadius: 16, padding: spacing.md }}
+              shimmerSpeed={3000}
+            >
+              <View style={styles(theme).logoSection}>
+                <View style={styles(theme).logoCircle}>
+                  <AppLogo size={48} />
+                </View>
               </View>
-            </View>
 
-            {/* Welcome Text */}
-            <View style={{ marginBottom: spacing.lg }}>
-              <Text style={styles(theme).title}>Create Account</Text>
-              <Text style={styles(theme).subtitle}>
-                Start your mindfulness journey today
-              </Text>
-            </View>
+              {/* Welcome Text */}
+              <View style={{ marginBottom: 0 }}>
+                <Text style={styles(theme).title}>Create Account</Text>
+                <Text style={styles(theme).subtitle}>
+                  Start your mindfulness journey today
+                </Text>
+              </View>
+            </ShimmerCard>
 
             {/* Email Input */}
             <View style={styles(theme).inputWrap}>
@@ -204,8 +212,13 @@ export default function SignupScreen() {
               </View>
             </GradientCard>
 
-            {/* Sign Up Button */}
-            <AnimatedButton onPress={handleSignup} hapticStyle="medium" disabled={loading}>
+            {/* Sign Up Button with Pulse */}
+            <PulseButton 
+              enabled={!loading && email && password && confirmPassword}
+              onPress={handleSignup}
+              pulseColor="rgba(102, 187, 106, 0.3)"
+              haptic
+            >
               <LinearGradient
                 colors={loading ? ['#B0BEC5', '#90A4AE'] : ['#66BB6A', '#43A047', '#2E7D32']}
                 start={{ x: 0, y: 0 }}
@@ -221,7 +234,7 @@ export default function SignupScreen() {
                   {loading ? "Creating account..." : "Create Account"}
                 </Text>
               </LinearGradient>
-            </AnimatedButton>
+            </PulseButton>
 
             {/* Divider */}
             <View style={styles(theme).divider}>

@@ -1,9 +1,11 @@
 ﻿import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, Alert, BackHandler } from "react-native";
+import { View, Text, StyleSheet, Alert, BackHandler, ScrollView } from "react-native";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as LocalAuthentication from "expo-local-authentication";
 import PrimaryButton from "../src/components/PrimaryButton";
 import { useRouter } from "expo-router";
+import ShimmerCard from "../src/components/ShimmerCard";
+import PulseButton from "../src/components/PulseButton";
 
 export default function BiometricLogin() {
   const [checking, setChecking] = useState(false);
@@ -47,14 +49,22 @@ export default function BiometricLogin() {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.heading}>Biometric Login</Text>
-      <PrimaryButton title="Login with Fingerprint/FaceID" onPress={handleBiometric} disabled={checking} fullWidth />
-    </View>
+    <ScrollView 
+      contentContainerStyle={styles.container}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    >
+      <ShimmerCard colors={['#E1F5FE', '#B3E5FC', '#81D4FA']} shimmerSpeed={3000}>
+        <Text style={styles.heading}>Biometric Login</Text>
+      </ShimmerCard>
+      <PulseButton enabled={!checking} pulseColor="rgba(2, 136, 209, 0.3)" haptic>
+        <PrimaryButton title="Login with Fingerprint/FaceID" onPress={handleBiometric} disabled={checking} fullWidth />
+      </PulseButton>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24, backgroundColor: "#E1F5FE" },
+  container: { flexGrow: 1, justifyContent: "center", alignItems: "center", padding: 24, backgroundColor: "#E1F5FE" },
   heading: { fontSize: 22, fontWeight: "700", color: "#01579B", marginBottom: 18 },
 });

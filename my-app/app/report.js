@@ -14,6 +14,8 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import GradientCard from "../src/components/GradientCard";
 import ProgressRing from "../src/components/ProgressRing";
+import ShimmerCard from "../src/components/ShimmerCard";
+import SkeletonLoader from "../src/components/SkeletonLoader";
 
 const BIOMETRIC_PREF_KEY = 'pref_biometric_enabled_v1';
 

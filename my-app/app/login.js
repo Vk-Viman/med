@@ -16,6 +16,8 @@ import AppLogo from "../src/components/AppLogo";
 import { useTheme } from "../src/theme/ThemeProvider";
 import AnimatedButton from "../src/components/AnimatedButton";
 import GradientCard from "../src/components/GradientCard";
+import ShimmerCard from "../src/components/ShimmerCard";
+import PulseButton from "../src/components/PulseButton";
 
 export default function LoginScreen() {
   const { theme } = useTheme();
@@ -119,14 +121,20 @@ export default function LoginScreen() {
             },
           ]}
         >
-          {/* Logo and Welcome */}
-          <View style={styles(theme).logoSection}>
-            <View style={styles(theme).logoCircle}>
-              <AppLogo size={56} />
+          {/* Logo and Welcome with Shimmer */}
+          <ShimmerCard 
+            colors={['#E1F5FE', '#B3E5FC', '#81D4FA']} 
+            style={{ marginBottom: spacing.lg, borderRadius: 16, padding: spacing.lg }}
+            shimmerSpeed={3000}
+          >
+            <View style={styles(theme).logoSection}>
+              <View style={styles(theme).logoCircle}>
+                <AppLogo size={56} />
+              </View>
+              <Text style={styles(theme).title}>Welcome Back</Text>
+              <Text style={styles(theme).subtitle}>Sign in to continue your journey</Text>
             </View>
-            <Text style={styles(theme).title}>Welcome Back</Text>
-            <Text style={styles(theme).subtitle}>Sign in to continue your journey</Text>
-          </View>
+          </ShimmerCard>
 
           {/* Email Input */}
           <View style={styles(theme).inputWrap}>
@@ -178,11 +186,12 @@ export default function LoginScreen() {
             </View>
           ) : null}
 
-          {/* Login Button */}
-          <AnimatedButton 
+          {/* Login Button with Pulse */}
+          <PulseButton 
+            enabled={!loading && email && password}
             onPress={handleLogin}
-            disabled={loading}
-            hapticStyle="medium"
+            pulseColor="rgba(2, 136, 209, 0.3)"
+            haptic
           >
             <LinearGradient
               colors={!loading ? ['#0288D1', '#01579B'] : ['#B0BEC5', '#90A4AE']}
@@ -195,7 +204,7 @@ export default function LoginScreen() {
                 {loading ? 'Signing in...' : 'Sign In'}
               </Text>
             </LinearGradient>
-          </AnimatedButton>
+          </PulseButton>
 
           {/* Divider */}
           <View style={styles(theme).divider}>

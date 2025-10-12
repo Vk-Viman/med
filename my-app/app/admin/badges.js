@@ -1,11 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, Button, Alert, Image, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import PrimaryButton from '../../src/components/PrimaryButton';
+import GradientCard from '../../src/components/GradientCard';
 import { listAdminBadges, createAdminBadge, updateAdminBadge, deleteAdminBadge } from '../../src/services/admin';
 import * as ImagePicker from 'expo-image-picker';
 import { storage } from '../../firebase/firebaseConfig';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
+import ShimmerCard from '../../src/components/ShimmerCard';
+import PulseButton from '../../src/components/PulseButton';
 
 export default function AdminBadges(){
   const { theme } = useTheme();
@@ -66,7 +70,17 @@ export default function AdminBadges(){
 
   return (
     <ScrollView style={{ flex:1, backgroundColor: theme.bg }} contentContainerStyle={{ padding:16 }}>
-      <Text style={[styles.title,{ color: theme.text }]}>Badges</Text>
+      <ShimmerCard colors={['#FFECB3', '#FFE082', '#FFD54F']} shimmerSpeed={3000}>
+        <View style={styles.header}>
+          <View style={styles.iconBadge}>
+            <Ionicons name="trophy" size={28} color="#FFA726" />
+          </View>
+          <View style={{ flex: 1, marginLeft: 16 }}>
+            <Text style={[styles.title, { color: theme.text }]}>Achievement Badges</Text>
+            <Text style={[styles.subtitle, { color: theme.textMuted }]}>Create & Manage Rewards</Text>
+          </View>
+        </View>
+      </ShimmerCard>
       <View style={[styles.card,{ backgroundColor: theme.card }]}> 
         <Text style={[styles.label,{ color: theme.text }]}>Name</Text>
         <TextInput value={form.name} onChangeText={(v)=> setForm(s=>({ ...s, name:v }))} placeholder='Name' style={styles.input} />
@@ -89,21 +103,25 @@ export default function AdminBadges(){
         <PrimaryButton title={form.id? 'Update' : 'Create'} onPress={save} fullWidth />
       </View>
 
-      <Text style={[styles.subtitle,{ color: theme.text }]}>Existing</Text>
+      <Text style={[styles.sectionTitle,{ color: theme.text }]}>Existing Badges</Text>
       {loading ? (
         <Text style={{ color: theme.textMuted }}>Loading…</Text>
       ) : rows.length === 0 ? (
         <Text style={{ color: theme.textMuted }}>No badges</Text>
       ) : (
         rows.map(b => (
-          <View key={b.id} style={[styles.card,{ backgroundColor: theme.card }]}> 
-            <Text style={[styles.rowTitle,{ color: theme.text }]}>{b.emoji || '🏅'} {b.name || b.id}</Text>
-            {!!b.description && <Text style={{ color: theme.textMuted }}>{b.description}</Text>}
+          <GradientCard key={b.id} colors={['#FFD54F', '#FFA726']} style={{ marginBottom: 14 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+              <Text style={{ fontSize: 28, marginRight: 10 }}>{b.emoji || '🏅'}</Text>
+              <Text style={[styles.rowTitle,{ color: '#fff' }]}>{b.name || b.id}</Text>
+            </View>
+            {!!b.description && <Text style={{ color: '#fff', marginBottom: 4, opacity: 0.95 }}>{b.description}</Text>}
+            <Text style={{ color: '#fff', opacity: 0.9, fontSize: 13 }}>Type: {b.type} • Threshold: {b.threshold || 'N/A'}</Text>
             <View style={{ flexDirection:'row', gap:8, marginTop:8 }}>
               <Button title='Edit' onPress={()=> edit(b)} />
               <Button title='Delete' color={'#D32F2F'} onPress={()=> del(b.id)} />
             </View>
-          </View>
+          </GradientCard>
         ))
       )}
     </ScrollView>
@@ -111,8 +129,11 @@ export default function AdminBadges(){
 }
 
 const styles = StyleSheet.create({
-  title:{ fontSize:28, fontWeight:'800', marginBottom:18, letterSpacing:0.3 },
-  subtitle:{ fontSize:20, fontWeight:'800', marginVertical:16, letterSpacing:0.2 },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255, 167, 38, 0.2)' },
+  iconBadge: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#FFF3E0', justifyContent: 'center', alignItems: 'center', shadowColor: '#FFA726', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
+  title:{ fontSize: 24, fontWeight:'800', letterSpacing:0.3 },
+  subtitle:{ fontSize: 14, fontWeight:'500', marginTop: 4 },
+  sectionTitle:{ fontSize:20, fontWeight:'800', marginVertical:16, letterSpacing:0.2 },
   card:{ padding:18, borderRadius:16, marginBottom:16, shadowColor:'#000', shadowOpacity:0.08, shadowRadius:8, elevation:3, borderWidth:1, borderColor:'rgba(0,0,0,0.05)' },
   label:{ fontSize:14, fontWeight:'700', marginTop:10, marginBottom:6, letterSpacing:0.2 },
   input:{ borderWidth:2, borderColor:'#90CAF9', borderRadius:12, paddingHorizontal:14, height:48, backgroundColor:'#ffffffCC', fontSize:15, shadowColor:'#000', shadowOpacity:0.04, shadowRadius:4, elevation:1 },

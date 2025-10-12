@@ -14,6 +14,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import GradientCard from '../src/components/GradientCard';
 import ProgressRing from '../src/components/ProgressRing';
 import EmptyState from '../src/components/EmptyState';
+import ShimmerCard from '../src/components/ShimmerCard';
+import SkeletonLoader from '../src/components/SkeletonLoader';
+import PulseButton from '../src/components/PulseButton';
 
 function fmtTime(t) {
   if (!t || isNaN(t)) return '0m';
@@ -241,8 +244,8 @@ export default function SessionsScreen() {
         </View>
       </View>
 
-      {/* Stats Card */}
-      <GradientCard colors={['#66BB6A', '#43A047', '#2E7D32']} style={{ margin: spacing.lg, marginBottom: spacing.md }}>
+      {/* Stats Card with Premium Shimmer */}
+      <ShimmerCard colors={['#66BB6A', '#43A047', '#2E7D32']} style={{ margin: spacing.lg, marginBottom: spacing.md }} shimmerSpeed={3500}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <ProgressRing
             size={80}
@@ -260,7 +263,7 @@ export default function SessionsScreen() {
             </Text>
           </View>
         </View>
-      </GradientCard>
+      </ShimmerCard>
 
       <View style={styles.headerRow}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -317,12 +320,13 @@ export default function SessionsScreen() {
       </View>
 
       {initialLoading ? (
-        <View>
+        <View style={{ paddingHorizontal: spacing.lg }}>
           {[...Array(5)].map((_, i) => (
-            <View key={i} style={styles.skelRow}>
-              <View style={styles.skelTitle} />
-              <View style={styles.skelMeta} />
-            </View>
+            <SkeletonLoader 
+              key={i} 
+              height={100} 
+              style={{ marginBottom: 12 }} 
+            />
           ))}
         </View>
       ) : (
@@ -334,11 +338,23 @@ export default function SessionsScreen() {
             ItemSeparatorComponent={() => <View style={styles.sep} />}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
             ListEmptyComponent={
-              <EmptyState
-                icon="hourglass-outline"
-                title="No sessions yet"
-                subtitle="Complete your first meditation to see your history"
-              />
+              <ShimmerCard colors={['#90CAF9', '#42A5F5']} style={{ margin: spacing.lg, padding: 24, alignItems: 'center' }}>
+                <Ionicons name="timer-outline" size={64} color="#fff" />
+                <Text style={{ fontSize: 18, fontWeight: '800', color: '#fff', marginTop: 12 }}>Ready to Begin?</Text>
+                <Text style={{ fontSize: 14, color: '#fff', opacity: 0.9, textAlign: 'center', marginTop: 8, marginBottom: 16 }}>
+                  Start your first meditation session and track your progress!
+                </Text>
+                <PulseButton 
+                  onPress={() => router.push('/meditation')}
+                  pulseColor="rgba(255,255,255,0.3)"
+                  haptic={true}
+                  style={{ width: '100%' }}
+                >
+                  <LinearGradient colors={['#fff', '#E3F2FD']} style={{ padding: 12, borderRadius: 12, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: '#0288D1' }}>Begin Meditation</Text>
+                  </LinearGradient>
+                </PulseButton>
+              </ShimmerCard>
             }
           />
         </Animated.View>

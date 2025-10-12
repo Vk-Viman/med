@@ -7,6 +7,9 @@ import { db, auth } from '../../firebase/firebaseConfig';
 import { useRouter } from 'expo-router';
 import { collection, query, orderBy, limit, startAfter } from 'firebase/firestore';
 import { safeSnapshot } from '../../src/utils/safeSnapshot';
+import ShimmerCard from '../../src/components/ShimmerCard';
+import SkeletonLoader from '../../src/components/SkeletonLoader';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function NotificationsScreen(){
   const { theme } = useTheme();
@@ -95,30 +98,80 @@ export default function NotificationsScreen(){
 
   const renderItem = ({ item }) => {
     const ts = item.createdAt?.toDate ? item.createdAt.toDate().toLocaleString() : '';
+    const isImportant = item.type === 'badge' || item.type === 'achievement' || item.type === 'milestone';
+    const icon = item.type === 'badge' ? 'trophy' : item.type === 'achievement' ? 'star' : item.type === 'milestone' ? 'flame' : 'notifications';
+    
+    if (isImportant && !item.read) {
+      // Premium shimmer for unread important notifications
+      return (
+        <TouchableOpacity onPress={()=>{
+          if(!item.read) markOne(item.id);
+          const route = item?.data?.route; if(route){ try { router.push(route); } catch {} }
+        }} style={{ marginBottom:12 }}>
+          <ShimmerCard 
+            colors={['#FFA726', '#FB8C00', '#F57C00']} 
+            shimmerSpeed={2500}
+            style={{ padding:16 }}
+          >
+            <View style={{ flexDirection:'row', alignItems:'center', marginBottom:8 }}>
+              <Ionicons name={icon} size={24} color="#fff" style={{ marginRight:12 }} />
+              <View style={{ flex:1 }}>
+                <Text style={{ color: '#fff', fontWeight:'800', fontSize:16 }}>{item.title || item.type || 'Notification'}</Text>
+                {!!ts && <Text style={{ color: '#FFE0B2', fontSize:11, marginTop:2 }}>{ts}</Text>}
+              </View>
+            </View>
+            {!!item.body && <Text style={{ color: '#fff', opacity:0.95 }}>{item.body}</Text>}
+            <Text style={{ marginTop:8, fontSize:11, color: '#FFE0B2', fontWeight:'600' }}>✨ Tap to view</Text>
+          </ShimmerCard>
+        </TouchableOpacity>
+      );
+    }
+    
+    // Regular notifications
     return (
       <TouchableOpacity onPress={()=>{
         if(!item.read) markOne(item.id);
         const route = item?.data?.route; if(route){ try { router.push(route); } catch {} }
       }} style={{ padding:12, backgroundColor: item.read ? (theme.bg === '#0B1722' ? '#13202c' : '#F5F9FC') : (theme.bg === '#0B1722' ? '#1b2b3b' : '#E3F2FD'), borderRadius:12, marginBottom:8 }}>
-        <View style={{ flexDirection:'row', justifyContent:'space-between' }}>
-          <Text style={{ color: theme.text, fontWeight:'700' }}>{item.title || item.type || 'Notification'}</Text>
-          {!!ts && <Text style={{ color: theme.textMuted, fontSize:11 }}>{ts}</Text>}
+        <View style={{ flexDirection:'row', alignItems:'center' }}>
+          <Ionicons name={icon} size={20} color={item.read ? theme.textMuted : theme.primary} style={{ marginRight:10 }} />
+          <View style={{ flex:1 }}>
+            <View style={{ flexDirection:'row', justifyContent:'space-between' }}>
+              <Text style={{ color: theme.text, fontWeight:'700' }}>{item.title || item.type || 'Notification'}</Text>
+              {!!ts && <Text style={{ color: theme.textMuted, fontSize:11 }}>{ts}</Text>}
+            </View>
+            {!!item.body && <Text style={{ color: theme.textMuted, marginTop:4 }}>{item.body}</Text>}
+            {!item.read && <Text style={{ marginTop:6, fontSize:10, color: theme.primary || '#0288D1' }}>Tap to mark read</Text>}
+          </View>
         </View>
-        {!!item.body && <Text style={{ color: theme.textMuted, marginTop:4 }}>{item.body}</Text>}
-        {!item.read && <Text style={{ marginTop:6, fontSize:10, color: theme.primary || '#0288D1' }}>Tap to mark read</Text>}
       </TouchableOpacity>
     );
   };
 
   return (
     <SafeAreaView style={{ flex:1, backgroundColor: theme.bg, padding:16 }}>
-      <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
-        <Text style={{ fontSize:24, fontWeight:'800', color: theme.text }}>Notifications</Text>
-        <Button title="Mark all" onPress={markAll} />
+      {/* Enhanced Header */}
+      <View style={{ flexDirection:'row', alignItems:'center', marginBottom:16 }}>
+        <View style={{ width:56, height:56, borderRadius:28, backgroundColor:'#E3F2FD', justifyContent:'center', alignItems:'center', marginRight:12 }}>
+          <Ionicons name="notifications" size={28} color="#0288D1" />
+        </View>
+        <View style={{ flex:1 }}>
+          <Text style={{ fontSize:24, fontWeight:'800', color: theme.text }}>Notifications</Text>
+          <Text style={{ fontSize:13, color: theme.textMuted }}>Stay updated on your journey</Text>
+        </View>
+        <TouchableOpacity 
+          onPress={markAll}
+          style={{ paddingHorizontal:12, paddingVertical:6, backgroundColor:'#E3F2FD', borderRadius:16 }}
+        >
+          <Text style={{ fontSize:12, fontWeight:'700', color:'#0288D1' }}>Mark all</Text>
+        </TouchableOpacity>
       </View>
+      
       {loading && liveItems.length===0 && olderItems.length===0 ? (
-        <View style={{ flex:1, alignItems:'center', justifyContent:'center' }}>
-          <ActivityIndicator />
+        <View style={{ paddingVertical:16 }}>
+          {[...Array(5)].map((_, i) => (
+            <SkeletonLoader key={i} height={80} style={{ marginBottom:12 }} />
+          ))}
         </View>
       ) : (
         <FlatList

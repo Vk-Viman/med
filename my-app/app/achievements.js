@@ -1,11 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, Animated, AccessibilityInfo, Platform, findNodeHandle, InteractionManager, Modal, Pressable, Image } from 'react-native';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, Animated, AccessibilityInfo, Platform, findNodeHandle, InteractionManager, Modal, Pressable, Image, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import GradientBackground from '../src/components/GradientBackground';
 import Card from '../src/components/Card';
 import { useTheme } from '../src/theme/ThemeProvider';
 import { auth, db } from '../firebase/firebaseConfig';
-import { listAllUserBadges, badgeEmoji } from '../src/badges';
+import { listAllUserBadges, badgeEmoji, evaluateStreakBadges } from '../src/badges';
 import { doc, getDoc } from 'firebase/firestore';
 import { getBadgeMeta, nextMinuteThreshold, nextStreakThreshold, progressTowards, loadAdminBadgesIntoCatalog } from '../src/constants/badges';
 import { listAdminBadgesForUser } from '../src/services/admin';
@@ -13,42 +13,85 @@ import { getCachedAggStats, setCachedAggStats } from '../src/utils/statsCache';
 import { Ionicons } from '@expo/vector-icons';
 import GradientCard from '../src/components/GradientCard';
 import EmptyState from '../src/components/EmptyState';
+import ShimmerCard from '../src/components/ShimmerCard';
+import SkeletonLoader from '../src/components/SkeletonLoader';
+import { handleError } from '../src/utils/errorHandler';
 
 export default function AchievementsScreen(){
   const { theme } = useTheme();
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [items, setItems] = useState([]);
   const announcerRef = useRef(null);
   const [selected, setSelected] = useState(null); // { id, name, awardedAt }
   const [stats, setStats] = useState({ totalMinutes: 0, streak: 0 });
 
-  useEffect(()=>{
-    let mounted = true;
-    (async()=>{
-      try{
-        // Merge admin-defined badges into catalog for richer details (read-only on user side)
-  const locale = (typeof navigator !== 'undefined' && navigator.language) ? navigator.language : (Intl?.DateTimeFormat?.().resolvedOptions?.().locale || 'en');
-  try { await loadAdminBadgesIntoCatalog({ fetchAdminBadges: listAdminBadgesForUser, locale: String(locale).split('-')[0] }); } catch {}
-        const uid = auth.currentUser?.uid;
-        if(uid){
-          const list = await listAllUserBadges(uid);
-          if(mounted) setItems(list);
-          // fetch aggregate stats for progress-to-next
-          try{
-            const cached = await getCachedAggStats(uid); if(cached) setStats({ totalMinutes: Number(cached.totalMinutes||0), streak: Number(cached.streak||0) });
-            const sRef = doc(db, 'users', uid, 'stats', 'aggregate');
-            const sSnap = await getDoc(sRef);
-            if(snapExists(sSnap)){
-              const d = sSnap.data()||{};
-              setStats({ totalMinutes: Number(d.totalMinutes||0), streak: Number(d.streak||0) });
-              try { await setCachedAggStats(uid, d); } catch {}
-            }
-          } catch{}
+  const loadBadges = useCallback(async (showSpinner = true) => {
+    if (showSpinner) setLoading(true);
+    try {
+      // Merge admin-defined badges into catalog
+      const locale = (typeof navigator !== 'undefined' && navigator.language) ? navigator.language : (Intl?.DateTimeFormat?.().resolvedOptions?.().locale || 'en');
+      try { 
+        await loadAdminBadgesIntoCatalog({ 
+          fetchAdminBadges: listAdminBadgesForUser, 
+          locale: String(locale).split('-')[0] 
+        }); 
+      } catch (error) {
+        handleError(error, 'Achievements:loadAdminBadges', { showAlert: false });
+      }
+      
+      const uid = auth.currentUser?.uid;
+      if (uid) {
+        // Re-evaluate streak badges before loading
+        try {
+          await evaluateStreakBadges(uid, stats.streak);
+        } catch (error) {
+          handleError(error, 'Achievements:evaluateStreak', { showAlert: false });
         }
-      } finally { if(mounted) setLoading(false); }
-    })();
-    return ()=>{ mounted = false; };
-  },[]);
+        
+        const list = await listAllUserBadges(uid);
+        setItems(list);
+        
+        // Fetch aggregate stats
+        try {
+          const cached = await getCachedAggStats(uid);
+          if (cached) {
+            setStats({ 
+              totalMinutes: Number(cached.totalMinutes || 0), 
+              streak: Number(cached.streak || 0) 
+            });
+          }
+          
+          const sRef = doc(db, 'users', uid, 'stats', 'aggregate');
+          const sSnap = await getDoc(sRef);
+          if (snapExists(sSnap)) {
+            const d = sSnap.data() || {};
+            setStats({ 
+              totalMinutes: Number(d.totalMinutes || 0), 
+              streak: Number(d.streak || 0) 
+            });
+            await setCachedAggStats(uid, d);
+          }
+        } catch (error) {
+          handleError(error, 'Achievements:loadStats', { showAlert: false });
+        }
+      }
+    } catch (error) {
+      handleError(error, 'Achievements:loadBadges', { showAlert: true });
+    } finally {
+      if (showSpinner) setLoading(false);
+    }
+  }, [stats.streak]);
+
+  useEffect(() => {
+    loadBadges(true);
+  }, []);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadBadges(false);
+    setRefreshing(false);
+  }, [loadBadges]);
 
   function snapExists(s){ try { return typeof s?.exists === 'function' ? s.exists() : !!s?.exists; } catch { return false; } }
 
@@ -88,13 +131,17 @@ export default function AchievementsScreen(){
     return (
       <Animated.View style={{ transform:[{ scale }], opacity }}>
         <Pressable onPress={()=> setSelected(item)} accessibilityRole='button' accessibilityLabel={`Show details for ${item.name || item.id}`}>
-          <Card style={styles.row} accessible accessibilityRole='text' accessibilityLabel={a11yLabel}>
+          <ShimmerCard 
+            colors={['#FFA726', '#FB8C00', '#F57C00']} 
+            style={styles.row}
+            shimmerSpeed={3000}
+          >
             <Text style={styles.emoji}>{badgeEmoji(item.id)}</Text>
             <View style={{ flex:1 }}>
-              <Text style={[styles.title,{ color: theme.text }]}>{item.name || item.id}</Text>
-              {!!dateStr && <Text style={[styles.subtitle,{ color: theme.textMuted }]}>Awarded {dateStr}</Text>}
+              <Text style={[styles.title,{ color: '#fff' }]}>{item.name || item.id}</Text>
+              {!!dateStr && <Text style={[styles.subtitle,{ color: '#FFE0B2' }]}>Awarded {dateStr}</Text>}
             </View>
-          </Card>
+          </ShimmerCard>
         </Pressable>
       </Animated.View>
     );
@@ -127,7 +174,11 @@ export default function AchievementsScreen(){
           </View>
         </View>
         {loading ? (
-          <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
+          <View style={{ paddingHorizontal: 16 }}>
+            {[...Array(4)].map((_, i) => (
+              <SkeletonLoader key={i} height={80} style={{ marginBottom: 12 }} />
+            ))}
+          </View>
         ) : items.length === 0 ? (
           <EmptyState
             icon="trophy-outline"
@@ -141,8 +192,23 @@ export default function AchievementsScreen(){
             renderItem={renderItem}
             ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
             contentContainerStyle={{ paddingBottom: 32 }}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={theme.primary}
+                colors={[theme.primary]}
+                title="Pull to refresh achievements"
+              />
+            }
+            // Performance optimizations
+            windowSize={10}
+            maxToRenderPerBatch={8}
+            updateCellsBatchingPeriod={50}
+            removeClippedSubviews={true}
+            initialNumToRender={8}
             accessibilityLabel='Earned badges list'
-            accessibilityHint='Swipe through to hear each badge'
+            accessibilityHint='Swipe through to hear each badge. Pull down to refresh.'
           />
         )}
 
@@ -222,7 +288,8 @@ const styles = StyleSheet.create({
   row:{ 
     flexDirection:'row', 
     alignItems:'center', 
-    padding:16, 
+    padding:16,
+    minHeight: 72, // Ensure minimum touch target (44pt+)
     borderRadius:16,
     shadowColor: "#000",
     shadowOpacity: 0.08,

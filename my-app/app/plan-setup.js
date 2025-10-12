@@ -4,6 +4,8 @@ import { useRouter } from "expo-router";
 import { auth, db } from "../firebase/firebaseConfig";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { generateAndSavePlan } from "../src/services/planService";
+import ShimmerCard from "../src/components/ShimmerCard";
+import PulseButton from "../src/components/PulseButton";
 
 // Questionnaire schema v1
 // {
@@ -37,10 +39,12 @@ function Chip({ label, selected, onPress, testID }) {
 
 function StepHeader({ title, subtitle }) {
   return (
-    <View style={{ marginBottom: 12 }}>
-      <Text style={styles.stepTitle}>{title}</Text>
-      {subtitle ? <Text style={styles.stepSubtitle}>{subtitle}</Text> : null}
-    </View>
+    <ShimmerCard colors={['#E1F5FE', '#B3E5FC', '#81D4FA']} shimmerSpeed={3000}>
+      <View style={{ marginBottom: 12 }}>
+        <Text style={styles.stepTitle}>{title}</Text>
+        {subtitle ? <Text style={styles.stepSubtitle}>{subtitle}</Text> : null}
+      </View>
+    </ShimmerCard>
   );
 }
 
@@ -270,9 +274,11 @@ export default function PlanSetup() {
         <TouchableOpacity onPress={skip} style={[styles.navBtn, { backgroundColor: "#E3F2FD" }]} accessibilityRole="button">
           <Text style={[styles.navBtnText, { color: "#0277BD" }]}>Skip</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={next} disabled={saving || !steps[index].isValid()} style={[styles.navBtn, steps[index].isValid() ? styles.cta : { opacity: 0.6 }]} accessibilityRole="button">
-          <Text style={[styles.navBtnText, { color: "#fff" }]}>{index === steps.length - 1 ? (saving ? "Saving…" : "Save") : "Next"}</Text>
-        </TouchableOpacity>
+        <PulseButton enabled={steps[index].isValid() && !saving} pulseColor="rgba(2, 136, 209, 0.3)" haptic>
+          <TouchableOpacity onPress={next} disabled={saving || !steps[index].isValid()} style={[styles.navBtn, steps[index].isValid() ? styles.cta : { opacity: 0.6 }]} accessibilityRole="button">
+            <Text style={[styles.navBtnText, { color: "#fff" }]}>{index === steps.length - 1 ? (saving ? "Saving…" : "Save") : "Next"}</Text>
+          </TouchableOpacity>
+        </PulseButton>
       </View>
     </View>
   );

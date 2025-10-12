@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import PrimaryButton from '../../src/components/PrimaryButton';
+import GradientCard from '../../src/components/GradientCard';
 import { listGroups, createGroup, deleteGroup, listFlaggedPosts, clearFlag, listChallenges, createChallenge, updateChallenge, deleteChallenge, postChallengeUpdate, listTeams, upsertTeam, deleteTeam, fulfillChallengeReward, recomputeTeamTotals } from '../../src/services/admin';
 import { collection, getDocs, limit, orderBy, query, where, addDoc, setDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../../firebase/firebaseConfig';
+import ShimmerCard from '../../src/components/ShimmerCard';
 
 export default function AdminCommunity(){
   const { theme } = useTheme();
@@ -55,6 +58,17 @@ export default function AdminCommunity(){
   return (
     <View style={{ flex:1, backgroundColor: theme.bg }}>
       <ScrollView contentContainerStyle={{ padding:12, paddingBottom: 60 }}>
+      <ShimmerCard colors={['#F3E5F5', '#E1BEE7', '#CE93D8']} shimmerSpeed={3000}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(171, 71, 188, 0.2)' }}>
+          <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#F3E5F5', justifyContent: 'center', alignItems: 'center', shadowColor: '#AB47BC', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 3 }}>
+            <Ionicons name="chatbubbles" size={28} color="#AB47BC" />
+          </View>
+          <View style={{ flex: 1, marginLeft: 16 }}>
+            <Text style={{ fontSize: 24, fontWeight: '800', letterSpacing: 0.3, color: theme.text }}>Community Management</Text>
+            <Text style={{ fontSize: 14, fontWeight: '500', marginTop: 4, color: theme.textMuted }}>Groups, Challenges & Posts</Text>
+          </View>
+        </View>
+      </ShimmerCard>
       <Text style={{ color: theme.text, fontWeight:'800', fontSize:16, marginBottom:8 }}>Groups & Challenges</Text>
       <View style={{ flexDirection:'row', gap:8, marginBottom:8 }}>
         <PrimaryButton title='Seed sample data' onPress={seedSampleData} />

@@ -17,6 +17,10 @@ import { safeSnapshot, trackSubscription } from '../../src/utils/safeSnapshot';
 import GradientCard from "../../src/components/GradientCard";
 import AnimatedButton from "../../src/components/AnimatedButton";
 import EmptyState from "../../src/components/EmptyState";
+import ShimmerCard from "../../src/components/ShimmerCard";
+import FloatingActionButton from "../../src/components/FloatingActionButton";
+import SkeletonLoader from "../../src/components/SkeletonLoader";
+import PulseButton from "../../src/components/PulseButton";
 
 export default function CommunityScreen() {
   const { theme } = useTheme();
@@ -955,7 +959,7 @@ export default function CommunityScreen() {
       <Text style={styles.section}>
         <Ionicons name="people-outline" size={20} color={theme.text} /> Community Board
       </Text>
-      <GradientCard colors={['#E1F5FE', '#F3E5F5']} style={{ marginBottom: 16, padding: 16 }}>
+      <ShimmerCard colors={['#E1F5FE', '#B3E5FC', '#81D4FA']} style={{ marginBottom: 16, padding: 16 }} shimmerSpeed={3500}>
         <View style={styles.postInputContainer}>
           <View style={styles.avatarCircle}>
             <Ionicons name="person" size={20} color="#0288D1" />
@@ -972,10 +976,12 @@ export default function CommunityScreen() {
         </View>
         <View style={styles.postActions}>
           <Text style={styles.charCount}>{message.length}/{cfg.communityMaxLength || 300}</Text>
-          <AnimatedButton 
+          <PulseButton 
             onPress={submitPost} 
-            disabled={!message.trim() || isBanned}
-            hapticStyle="medium"
+            enabled={message.trim() && !isBanned}
+            pulseColor="rgba(2, 136, 209, 0.4)"
+            pulseScale={1.12}
+            haptic={true}
           >
             <LinearGradient
               colors={message.trim() && !isBanned ? ['#0288D1', '#01579B'] : ['#CFD8DC', '#B0BEC5']}
@@ -986,14 +992,15 @@ export default function CommunityScreen() {
               <Ionicons name="send" size={18} color="#fff" />
               <Text style={styles.postButtonText}>Share</Text>
             </LinearGradient>
-          </AnimatedButton>
+          </PulseButton>
         </View>
-      </GradientCard>
+      </ShimmerCard>
       <View>
         {loadingPosts ? (
-          <View style={{ alignItems: 'center', paddingVertical: 40 }}>
-            <ActivityIndicator size="large" color={theme.primary} />
-            <Text style={{ color: theme.textMuted, marginTop: 12 }}>Loading community posts…</Text>
+          <View style={{ paddingHorizontal: 16 }}>
+            {[...Array(4)].map((_, i) => (
+              <SkeletonLoader key={i} height={120} style={{ marginBottom: 12 }} />
+            ))}
           </View>
         ) : posts.length === 0 ? (
           <EmptyState
@@ -1140,6 +1147,20 @@ export default function CommunityScreen() {
             </View>
           </View>
         </Modal>
+      )}
+      
+      {/* Floating Action Button for Quick Post */}
+      {termsAccepted && !isBanned && (
+        <FloatingActionButton
+          icon="create"
+          onPress={() => {
+            scrollRef.current?.scrollTo({ y: 0, animated: true });
+            // Focus will go to the TextInput at top
+          }}
+          colors={['#AB47BC', '#8E24AA']}
+          position="bottom-right"
+          bottom={80}
+        />
       )}
     </SafeAreaView>
   );

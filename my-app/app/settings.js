@@ -27,6 +27,7 @@ import { clearUserSubscriptions } from '../src/utils/safeSnapshot';
 import { registerPushTokens } from '../src/services/pushTokens';
 import { db } from '../firebase/firebaseConfig';
 import { doc, getDoc } from 'firebase/firestore';
+import * as LocalAuthentication from "expo-local-authentication";
 // Removed Recent Achievements from Settings – no longer needed here
 
 const BIOMETRIC_PREF_KEY = 'pref_biometric_enabled_v1';
@@ -469,6 +470,38 @@ export default function SettingsScreen() {
     Alert.alert('Biometrics', val? 'Biometric quick unlock enabled.' : 'Biometric quick unlock disabled.');
   };
 
+  // ===== Test Biometric Login =====
+  const testBiometricLogin = async () => {
+    try {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const enrolled = await LocalAuthentication.isEnrolledAsync();
+      
+      if (!hasHardware) {
+        Alert.alert("Not Available", "This device does not support biometric authentication.");
+        return;
+      }
+      
+      if (!enrolled) {
+        Alert.alert("Not Enrolled", "No biometric credentials are enrolled on this device. Please set up Face ID or fingerprint in your device settings.");
+        return;
+      }
+      
+      const result = await LocalAuthentication.authenticateAsync({ 
+        promptMessage: "Authenticate with biometrics",
+        cancelLabel: "Cancel",
+        disableDeviceFallback: false
+      });
+      
+      if (result.success) {
+        Alert.alert("Success", "Biometric authentication successful! ✓");
+      } else {
+        Alert.alert("Failed", "Biometric authentication failed. Please try again.");
+      }
+    } catch (e) {
+      Alert.alert("Error", e.message || "An error occurred during biometric authentication.");
+    }
+  };
+
   // ===== Haptics Toggle =====
   const toggleHaptics = async (val) => {
     setHapticsEnabledState(val);
@@ -699,6 +732,7 @@ export default function SettingsScreen() {
       data: [
         { key:'localOnly', type:'toggle', label:'Local-Only Mode', value: localOnly, onValueChange: toggleLocalOnly },
         { key:'biometric', type:'toggle', label:'Biometric Unlock', value: biometricPref, onValueChange: toggleBiometric },
+        { key:'testBiometric', type:'action', label:'Test Biometric Login', onPress: testBiometricLogin },
         { key:'haptics', type:'toggle', label:'Haptics', value: hapticsEnabled, onValueChange: toggleHaptics },
   { key:'darkMode', type:'toggle', label:'Dark Mode', value: mode==='dark', onValueChange: async(val)=>{ const next = val? 'dark':'light'; setThemeModeLocal(next); try { await setThemeMode(next); } catch {} try { await updateUserProfile({ themeMode: next }); } catch {} } },
         { key:'analyticsOptOut', type:'toggle', label:'Analytics Opt-Out', value: analyticsOptOut, onValueChange: async(val)=>{ setAnalyticsOptOut(val); try { await updateUserProfile({ analyticsOptOut: val }); } catch {} } },

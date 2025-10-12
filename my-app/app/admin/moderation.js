@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, Button, Alert, TouchableOpacity, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { db, auth } from '../../firebase/firebaseConfig';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, setDoc, getDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { safeSnapshot } from '../../src/utils/safeSnapshot';
 import { adminExportReportsCsv } from '../../src/services/admin';
 import { useTheme } from '../../src/theme/ThemeProvider';
+import GradientCard from '../../src/components/GradientCard';
+import ShimmerCard from '../../src/components/ShimmerCard';
 
 export default function ModerationScreen(){
   const { theme } = useTheme();
@@ -156,7 +159,15 @@ export default function ModerationScreen(){
 
   return (
     <SafeAreaView style={{ flex:1, padding:16, backgroundColor: theme.bg }}>
-      <Text style={{ color: theme.text, fontSize:20, fontWeight:'800', marginBottom:10 }}>Moderation</Text>
+      <View style={styles.header}>
+        <View style={styles.iconBadge}>
+          <Ionicons name="shield-checkmark" size={28} color="#EF5350" />
+        </View>
+        <View style={{ flex: 1, marginLeft: 16 }}>
+          <Text style={[styles.title, { color: theme.text }]}>Content Moderation</Text>
+          <Text style={[styles.subtitle, { color: theme.textMuted }]}>Review & Manage Reports</Text>
+        </View>
+      </View>
       <View style={{ flexDirection:'row', gap:8, marginBottom:10, flexWrap:'wrap' }}>
         {['open','resolved','dismissed','all'].map(s => (
           <Button key={s} title={s} onPress={()=> setStatusFilter(s)} color={statusFilter===s? '#0288D1' : undefined} />
@@ -189,38 +200,42 @@ export default function ModerationScreen(){
       <FlatList
         data={filtered}
         keyExtractor={(it)=> it.id}
-        renderItem={({ item }) => (
-          <View style={[styles.card,{ backgroundColor: theme.card }]}> 
-            <Text style={{ color: theme.text, fontWeight:'700' }}>Post: {item.postId}</Text>
-            {(() => { const m = postMeta[item.postId]||{}; return m.flagged && !m.hidden ? (
-              <Text style={{ color:'#f57c00', fontWeight:'700' }}>Flagged</Text>
-            ) : null; })()}
-            <Text style={{ color: theme.textMuted }}>Reason: {item.reason}</Text>
-            <Text style={{ color: theme.textMuted }}>Status: {item.status}</Text>
-            {(() => { const m = postMeta[item.postId]||{}; return (
-              <Text style={{ color: theme.textMuted }}>Toxicity: {m.toxicityScore? (m.toxicityScore*100).toFixed(0): '0'}% {m.toxicityReason? `• ${m.toxicityReason}`:''}</Text>
-            ); })()}
-            {/* Inline post preview text */}
-            {(() => { const m = postMeta[item.postId]||{}; return m.text ? (
-              <Text style={{ color: theme.text, marginTop:6 }} numberOfLines={3}>{m.text}</Text>
-            ) : null; })()}
-            <View style={{ height:6 }} />
-            <View style={{ flexDirection:'row', gap:8, flexWrap:'wrap' }}>
-              <Button title="Dismiss" onPress={()=> dismiss(item)} />
-              <Button title="Hide" color="#f57c00" onPress={()=> hidePost(item)} />
-              <Button title="Approve+Unhide" color="#2e7d32" onPress={()=> approveAndUnhide(item)} />
-              <Button title="Unhide" onPress={()=> unhidePost(item)} />
-              <Button title="Delete" color="#c62828" onPress={()=> deletePost(item)} />
-              <Button title="Manual Flag" onPress={()=> manualFlagFromReport(item.postId)} />
-              <Button title="Clear Flag" onPress={()=> manualClearFromReport(item.postId)} />
-            </View>
-          </View>
-        )}
+        renderItem={({ item }) => {
+          const m = postMeta[item.postId]||{};
+          const isFlagged = m.flagged && !m.hidden;
+          return (
+            <GradientCard colors={isFlagged ? ['#FFA726', '#EF5350'] : ['#78909C', '#546E7A']} style={{ marginBottom: 14 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                <Ionicons name={isFlagged ? "warning" : "document-text"} size={20} color="#fff" />
+                <Text style={{ color: '#fff', fontWeight:'800', fontSize: 16, marginLeft: 8 }}>Post: {item.postId}</Text>
+              </View>
+              {isFlagged && <Text style={{ color:'#fff', fontWeight:'700', marginBottom: 4 }}>⚠️ Flagged</Text>}
+              <Text style={{ color: '#fff', opacity: 0.9 }}>Reason: {item.reason}</Text>
+              <Text style={{ color: '#fff', opacity: 0.9 }}>Status: {item.status}</Text>
+              <Text style={{ color: '#fff', opacity: 0.9 }}>Toxicity: {m.toxicityScore? (m.toxicityScore*100).toFixed(0): '0'}% {m.toxicityReason? `• ${m.toxicityReason}`:''}</Text>
+              {m.text && <Text style={{ color: '#fff', marginTop:6, fontStyle: 'italic' }} numberOfLines={3}>"{m.text}"</Text>}
+              <View style={{ height:6 }} />
+              <View style={{ flexDirection:'row', gap:8, flexWrap:'wrap' }}>
+                <Button title="Dismiss" onPress={()=> dismiss(item)} />
+                <Button title="Hide" color="#f57c00" onPress={()=> hidePost(item)} />
+                <Button title="Approve+Unhide" color="#2e7d32" onPress={()=> approveAndUnhide(item)} />
+                <Button title="Unhide" onPress={()=> unhidePost(item)} />
+                <Button title="Delete" color="#c62828" onPress={()=> deletePost(item)} />
+                <Button title="Manual Flag" onPress={()=> manualFlagFromReport(item.postId)} />
+                <Button title="Clear Flag" onPress={()=> manualClearFromReport(item.postId)} />
+              </View>
+            </GradientCard>
+          );
+        }}
       />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(239, 83, 80, 0.2)' },
+  iconBadge: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#FFEBEE', justifyContent: 'center', alignItems: 'center', shadowColor: '#EF5350', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
+  title: { fontSize: 24, fontWeight: '800', letterSpacing: 0.3 },
+  subtitle: { fontSize: 14, fontWeight: '500', marginTop: 4 },
   card:{ padding:18, borderRadius:16, marginBottom:14, shadowColor:'#000', shadowOpacity:0.08, shadowRadius:8, elevation:3, borderWidth:1, borderColor:'rgba(0,0,0,0.05)' }
 });

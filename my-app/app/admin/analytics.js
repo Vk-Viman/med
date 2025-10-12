@@ -3,9 +3,13 @@ import { View, Text, ScrollView, StyleSheet, Alert, Linking } from 'react-native
 import * as FileSystem from 'expo-file-system/legacy';
 import * as XLSX from 'xlsx';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import PrimaryButton from '../../src/components/PrimaryButton';
+import GradientCard from '../../src/components/GradientCard';
 import { getCommunityAnalytics, getChallengeAnalytics, getRetentionAnalytics, getCohortSignupWeeks, adminComputeAndStoreAnalytics, getAnalyticsSnapshot } from '../../src/services/admin';
+import ShimmerCard from '../../src/components/ShimmerCard';
+import SkeletonLoader from '../../src/components/SkeletonLoader';
 
 export default function AdminAnalytics(){
   const { theme } = useTheme();
@@ -55,7 +59,17 @@ export default function AdminAnalytics(){
 
   return (
     <ScrollView style={{ flex:1, backgroundColor: theme.bg }} contentContainerStyle={{ padding:16 }}>
-      <Text style={[styles.h1,{ color: theme.text }]}>Analytics</Text>
+      <ShimmerCard colors={['#E8EAF6', '#C5CAE9', '#9FA8DA']} shimmerSpeed={3000}>
+        <View style={styles.header}>
+          <View style={styles.iconBadge}>
+            <Ionicons name="bar-chart" size={28} color="#AB47BC" />
+          </View>
+          <View style={{ flex: 1, marginLeft: 16 }}>
+            <Text style={[styles.title, { color: theme.text }]}>Analytics Dashboard</Text>
+            <Text style={[styles.subtitle, { color: theme.textMuted }]}>Insights & Performance Metrics</Text>
+          </View>
+        </View>
+      </ShimmerCard>
       <View style={{ flexDirection:'row', gap:8, alignItems:'center', marginVertical:8, flexWrap:'wrap' }}>
         <PrimaryButton small title={startDate? startDate.toISOString().slice(0,10) : 'Pick start'} onPress={()=> setShowStart(true)} />
         <PrimaryButton small title={endDate? endDate.toISOString().slice(0,10) : 'Pick end'} onPress={()=> setShowEnd(true)} />
@@ -237,22 +251,25 @@ export default function AdminAnalytics(){
 
       <Text style={[styles.h2,{ color: theme.text, marginTop: 12 }]}>Community (7d)</Text>
       {comm && (
-        <View style={[styles.card,{ backgroundColor: theme.card }]}> 
-          <Text style={[styles.kv,{ color: theme.text }]}>
+        <GradientCard colors={['#AB47BC', '#8E24AA']} style={{ marginTop: 12 }}>
+          <Text style={[styles.kv, { color: '#fff', fontWeight: '800', fontSize: 16, marginBottom: 8 }]}>
+            Community Activity
+          </Text>
+          <Text style={[styles.kv,{ color: '#fff' }]}>
             Posts: <Text style={styles.k}>{comm.postsCount}</Text>  •  Active posters: <Text style={styles.k}>{comm.activePosters}</Text>
           </Text>
-          <Text style={[styles.kv,{ color: theme.text }]}>Flagged: <Text style={styles.k}>{comm.flaggedCount}</Text>  •  Rate: <Text style={styles.k}>{(comm.flaggedRate*100).toFixed(1)}%</Text></Text>
-          <Text style={[styles.kv,{ color: theme.textMuted }]}>Reports: {comm.reportsCount}</Text>
-        </View>
+          <Text style={[styles.kv,{ color: '#fff' }]}>Flagged: <Text style={styles.k}>{comm.flaggedCount}</Text>  •  Rate: <Text style={styles.k}>{(comm.flaggedRate*100).toFixed(1)}%</Text></Text>
+          <Text style={[styles.kv,{ color: '#fff', opacity: 0.9 }]}>Reports: {comm.reportsCount}</Text>
+        </GradientCard>
       )}
 
       <Text style={[styles.h2,{ color: theme.text, marginTop: 12 }]}>Challenges</Text>
       {chals.map(c => (
-        <View key={c.id} style={[styles.card,{ backgroundColor: theme.card }]}> 
-          <Text style={[styles.kv,{ color: theme.text }]}>{c.title}</Text>
-          <Text style={[styles.kv,{ color: theme.textMuted }]}>Participants: {c.participants} • Completed: {c.completed} • Rate {(c.completionRate*100).toFixed(0)}%</Text>
-          <Text style={[styles.kv,{ color: theme.textMuted }]}>Total minutes: {c.totalMinutes}</Text>
-        </View>
+        <GradientCard key={c.id} colors={['#26A69A', '#00897B']} style={{ marginTop: 12 }}>
+          <Text style={[styles.kv,{ color: '#fff', fontWeight: '800', fontSize: 16 }]}>{c.title}</Text>
+          <Text style={[styles.kv,{ color: '#fff', marginTop: 4 }]}>Participants: {c.participants} • Completed: {c.completed} • Rate {(c.completionRate*100).toFixed(0)}%</Text>
+          <Text style={[styles.kv,{ color: '#fff', opacity: 0.9 }]}>Total minutes: {c.totalMinutes}</Text>
+        </GradientCard>
       ))}
 
       <Text style={[styles.h2,{ color: theme.text, marginTop: 12 }]}>Retention cohorts</Text>
@@ -282,6 +299,10 @@ export default function AdminAnalytics(){
 }
 
 const styles = StyleSheet.create({
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(171, 71, 188, 0.2)' },
+  iconBadge: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#F3E5F5', justifyContent: 'center', alignItems: 'center', shadowColor: '#AB47BC', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
+  title: { fontSize: 24, fontWeight: '800', letterSpacing: 0.3 },
+  subtitle: { fontSize: 14, fontWeight: '500', marginTop: 4 },
   h1:{ fontSize:28, fontWeight:'800', letterSpacing:0.3, marginBottom:4 },
   h2:{ fontSize:20, fontWeight:'800', letterSpacing:0.2, marginTop:8 },
   card:{ padding:18, borderRadius:16, marginTop:12, shadowColor:'#000', shadowOpacity:0.08, shadowRadius:8, elevation:3, borderWidth:1, borderColor:'rgba(0,0,0,0.05)' },

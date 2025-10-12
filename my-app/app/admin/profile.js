@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Alert, Switch, Image, TextInput } from 'react-native';
+import { View, Text, StyleSheet, Alert, Switch, Image, TextInput, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import PrimaryButton from '../../src/components/PrimaryButton';
 import { auth } from '../../firebase/firebaseConfig';
 import { signOut, sendEmailVerification } from 'firebase/auth';
 import { getUserProfile, updateUserProfile, bumpSessionEpoch } from '../../src/services/userProfile';
 import * as ImagePicker from 'expo-image-picker';
+import ShimmerCard from '../../src/components/ShimmerCard';
 
 const BIOMETRIC_PREF_KEY = 'pref_biometric_enabled_v1';
 
@@ -100,7 +102,16 @@ export default function AdminProfile(){
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(66, 165, 245, 0.2)' }}>
+        <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#E3F2FD', justifyContent: 'center', alignItems: 'center', shadowColor: '#42A5F5', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 3 }}>
+          <Ionicons name="person" size={28} color="#42A5F5" />
+        </View>
+        <View style={{ flex: 1, marginLeft: 16 }}>
+          <Text style={{ fontSize: 24, fontWeight: '800', letterSpacing: 0.3, color: theme.text }}>Admin Profile</Text>
+          <Text style={{ fontSize: 14, fontWeight: '500', marginTop: 4, color: theme.textMuted }}>Manage Your Account</Text>
+        </View>
+      </View>
       <View style={styles.headerRow}>
         {avatarB64 ? (
           <Image source={{ uri: `data:image/png;base64,${avatarB64}` }} style={styles.avatar} />
@@ -149,7 +160,7 @@ export default function AdminProfile(){
       <PrimaryButton title="Sign Out All Devices" onPress={signOutAllDevices} variant='secondary' fullWidth />
       <View style={{ height:8 }} />
       <PrimaryButton title="Open Full Settings" onPress={()=> router.push('/settings')} fullWidth />
-    </View>
+    </ScrollView>
   );
 }
 
