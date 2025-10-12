@@ -11,7 +11,7 @@ module.exports = ({ config }) => {
   slug: 'med',
       version: '1.0.0',
       orientation: 'portrait',
-      icon: './assets/icon.png',
+  icon: './assets/icon.png',
       userInterfaceStyle: 'light',
       newArchEnabled: true,
       updates: { enabled: false },
@@ -27,9 +27,10 @@ module.exports = ({ config }) => {
         },
       },
       android: {
-        package: 'io.github.vkviman.calmspace',
+        package: 'com.vkviman.med',
         adaptiveIcon: {
-          foregroundImage: './assets/adaptive-icon.png',
+          // Use the same brand icon for single-color mask; Android will mask this to a squircle/circle as needed
+          foregroundImage: './assets/icon.png',
           backgroundColor: '#ffffff',
         },
         edgeToEdgeEnabled: true,
