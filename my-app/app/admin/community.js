@@ -57,7 +57,7 @@ export default function AdminCommunity(){
   };
   return (
     <View style={{ flex:1, backgroundColor: theme.bg }}>
-      <ScrollView contentContainerStyle={{ padding:12, paddingBottom: 60 }}>
+      <ScrollView contentContainerStyle={{ padding:12, paddingBottom: 80 }} keyboardShouldPersistTaps="handled">
       <ShimmerCard colors={['#F3E5F5', '#E1BEE7', '#CE93D8']} shimmerSpeed={3000}>
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(171, 71, 188, 0.2)' }}>
           <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#F3E5F5', justifyContent: 'center', alignItems: 'center', shadowColor: '#AB47BC', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 3 }}>

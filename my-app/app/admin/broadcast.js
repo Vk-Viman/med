@@ -100,7 +100,7 @@ export default function AdminBroadcast(){
 
   return (
     <SafeAreaView style={{ flex:1, backgroundColor: theme.bg }}>
-      <ScrollView contentContainerStyle={{ padding:16 }}>
+      <ScrollView contentContainerStyle={{ padding:16, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(38, 166, 154, 0.2)' }}>
           <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#E0F2F1', justifyContent: 'center', alignItems: 'center', shadowColor: '#26A69A', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 3 }}>
             <Ionicons name="megaphone" size={28} color="#26A69A" />

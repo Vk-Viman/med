@@ -69,7 +69,7 @@ export default function AdminBadges(){
   const del = async (id)=>{ try{ await deleteAdminBadge(id); await load(); }catch(e){ Alert.alert('Delete Failed', e?.message || String(e)); } };
 
   return (
-    <ScrollView style={{ flex:1, backgroundColor: theme.bg }} contentContainerStyle={{ padding:16 }}>
+    <ScrollView style={{ flex:1, backgroundColor: theme.bg }} contentContainerStyle={{ padding:16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
       <ShimmerCard colors={['#FFECB3', '#FFE082', '#FFD54F']} shimmerSpeed={3000}>
         <View style={styles.header}>
           <View style={styles.iconBadge}>

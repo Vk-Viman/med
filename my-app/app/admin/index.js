@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable, useWindowDimensions } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -16,6 +17,9 @@ import SkeletonLoader from '../../src/components/SkeletonLoader';
 export default function AdminHome(){
   const router = useRouter();
   const { theme } = useTheme();
+  const { width } = useWindowDimensions();
+  const isNarrow = width < 360;
+  const insets = useSafeAreaInsets();
   const [counts, setCounts] = useState({ users: 0, meditations: 0, plans: 0, flagged: 0 });
   const [loading, setLoading] = useState(true);
   useEffect(()=>{ 
@@ -39,7 +43,13 @@ export default function AdminHome(){
     })();
   },[]);
   return (
-    <ScrollView style={{ flex:1, backgroundColor: theme.bg }} contentContainerStyle={{ padding:16 }}>
+    <SafeAreaView style={{ flex:1, backgroundColor: theme.bg }}>
+      <ScrollView
+        style={{ flex:1 }}
+        contentContainerStyle={{ padding:16, paddingBottom: Math.max(80, (insets?.bottom||0) + 100), flexGrow: 1 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator
+      >
       {/* Professional Header with Shimmer */}
       <ShimmerCard 
         colors={['#E8EAF6', '#C5CAE9', '#9FA8DA']}
@@ -113,73 +123,74 @@ export default function AdminHome(){
       <View style={{ height: 20 }} />
       
       <Text style={[styles.sectionTitle, { color: theme.text }]}>Quick Actions</Text>
-      <View style={styles.gridContainer}>
-        <Pressable style={({ pressed })=> [styles.gridCard, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/users')} accessibilityLabel="Manage Users" accessibilityRole='button'>
+      <View style={[styles.gridContainer, isNarrow && { gap: 10 }]}>
+        <Pressable style={({ pressed })=> [styles.gridCard, isNarrow && styles.gridCardFull, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/users')} accessibilityLabel="Manage Users" accessibilityRole='button'>
           <Ionicons name='people' size={26} color="#0288D1" />
           <Text style={[styles.gridLabel,{ color: theme.text }]}>Users</Text>
         </Pressable>
         
-        <Pressable style={({ pressed })=> [styles.gridCard, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/moderation')} accessibilityLabel="Moderation" accessibilityRole='button'>
+        <Pressable style={({ pressed })=> [styles.gridCard, isNarrow && styles.gridCardFull, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/moderation')} accessibilityLabel="Moderation" accessibilityRole='button'>
           <Ionicons name='shield-checkmark' size={26} color="#0288D1" />
           <Text style={[styles.gridLabel,{ color: theme.text }]}>Moderation</Text>
         </Pressable>
         
-        <Pressable style={({ pressed })=> [styles.gridCard, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/settings')} accessibilityLabel="Admin Settings" accessibilityRole='button'>
+        <Pressable style={({ pressed })=> [styles.gridCard, isNarrow && styles.gridCardFull, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/settings')} accessibilityLabel="Admin Settings" accessibilityRole='button'>
           <Ionicons name='settings' size={26} color="#0288D1" />
           <Text style={[styles.gridLabel,{ color: theme.text }]}>Settings</Text>
         </Pressable>
         
-        <Pressable style={({ pressed })=> [styles.gridCard, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/mutes')} accessibilityLabel="Global Mutes" accessibilityRole='button'>
+        <Pressable style={({ pressed })=> [styles.gridCard, isNarrow && styles.gridCardFull, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/mutes')} accessibilityLabel="Global Mutes" accessibilityRole='button'>
           <Ionicons name='volume-mute' size={26} color="#0288D1" />
           <Text style={[styles.gridLabel,{ color: theme.text }]}>Mutes</Text>
         </Pressable>
         
-        <Pressable style={({ pressed })=> [styles.gridCard, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/analytics')} accessibilityLabel="Analytics" accessibilityRole='button'>
+        <Pressable style={({ pressed })=> [styles.gridCard, isNarrow && styles.gridCardFull, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/analytics')} accessibilityLabel="Analytics" accessibilityRole='button'>
           <Ionicons name='analytics' size={26} color="#0288D1" />
           <Text style={[styles.gridLabel,{ color: theme.text }]}>Analytics</Text>
         </Pressable>
         
-        <Pressable style={({ pressed })=> [styles.gridCard, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/privacy')} accessibilityLabel="Privacy Center" accessibilityRole='button'>
+        <Pressable style={({ pressed })=> [styles.gridCard, isNarrow && styles.gridCardFull, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/privacy')} accessibilityLabel="Privacy Center" accessibilityRole='button'>
           <Ionicons name='lock-closed' size={26} color="#0288D1" />
           <Text style={[styles.gridLabel,{ color: theme.text }]}>Privacy</Text>
         </Pressable>
         
-        <Pressable style={({ pressed })=> [styles.gridCard, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/profile')} accessibilityLabel="Admin Profile" accessibilityRole='button'>
+        <Pressable style={({ pressed })=> [styles.gridCard, isNarrow && styles.gridCardFull, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/profile')} accessibilityLabel="Admin Profile" accessibilityRole='button'>
           <Ionicons name='person' size={26} color="#0288D1" />
           <Text style={[styles.gridLabel,{ color: theme.text }]}>Profile</Text>
         </Pressable>
         
-        <Pressable style={({ pressed })=> [styles.gridCard, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/meditations')} accessibilityLabel="Meditations" accessibilityRole='button'>
+        <Pressable style={({ pressed })=> [styles.gridCard, isNarrow && styles.gridCardFull, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/meditations')} accessibilityLabel="Meditations" accessibilityRole='button'>
           <Ionicons name='leaf' size={26} color="#0288D1" />
           <Text style={[styles.gridLabel,{ color: theme.text }]}>Meditations</Text>
         </Pressable>
         
-        <Pressable style={({ pressed })=> [styles.gridCard, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/plans')} accessibilityLabel="Plans" accessibilityRole='button'>
+        <Pressable style={({ pressed })=> [styles.gridCard, isNarrow && styles.gridCardFull, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/plans')} accessibilityLabel="Plans" accessibilityRole='button'>
           <Ionicons name='calendar' size={26} color="#0288D1" />
           <Text style={[styles.gridLabel,{ color: theme.text }]}>Plans</Text>
         </Pressable>
         
-        <Pressable style={({ pressed })=> [styles.gridCard, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/community')} accessibilityLabel="Community" accessibilityRole='button'>
+        <Pressable style={({ pressed })=> [styles.gridCard, isNarrow && styles.gridCardFull, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/community')} accessibilityLabel="Community" accessibilityRole='button'>
           <Ionicons name='people-circle' size={26} color="#0288D1" />
           <Text style={[styles.gridLabel,{ color: theme.text }]}>Community</Text>
         </Pressable>
         
-        <Pressable style={({ pressed })=> [styles.gridCard, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/badges')} accessibilityLabel="Badges" accessibilityRole='button'>
+        <Pressable style={({ pressed })=> [styles.gridCard, isNarrow && styles.gridCardFull, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/badges')} accessibilityLabel="Badges" accessibilityRole='button'>
           <Ionicons name='trophy' size={26} color="#0288D1" />
           <Text style={[styles.gridLabel,{ color: theme.text }]}>Badges</Text>
         </Pressable>
         
-        <Pressable style={({ pressed })=> [styles.gridCard, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/audit')} accessibilityLabel="Audit Log" accessibilityRole='button'>
+        <Pressable style={({ pressed })=> [styles.gridCard, isNarrow && styles.gridCardFull, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/audit')} accessibilityLabel="Audit Log" accessibilityRole='button'>
           <Ionicons name='list' size={26} color="#0288D1" />
           <Text style={[styles.gridLabel,{ color: theme.text }]}>Audit Log</Text>
         </Pressable>
         
-        <Pressable style={({ pressed })=> [styles.gridCard, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/broadcast')} accessibilityLabel="Broadcast" accessibilityRole='button'>
+        <Pressable style={({ pressed })=> [styles.gridCard, isNarrow && styles.gridCardFull, pressed && styles.gridPressed, { backgroundColor: theme.card }]} onPress={()=> router.push('/admin/broadcast')} accessibilityLabel="Broadcast" accessibilityRole='button'>
           <Ionicons name='megaphone' size={26} color="#0288D1" />
           <Text style={[styles.gridLabel,{ color: theme.text }]}>Broadcast</Text>
         </Pressable>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -263,6 +274,10 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
     elevation: 3,
+  },
+  gridCardFull: {
+    width: '100%',
+    aspectRatio: 3.5,
   },
   gridPressed: {
     opacity: 0.7,

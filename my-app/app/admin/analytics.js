@@ -58,7 +58,7 @@ export default function AdminAnalytics(){
   useEffect(()=>{ load(); },[]);
 
   return (
-    <ScrollView style={{ flex:1, backgroundColor: theme.bg }} contentContainerStyle={{ padding:16 }}>
+    <ScrollView style={{ flex:1, backgroundColor: theme.bg }} contentContainerStyle={{ padding:16, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
       <ShimmerCard colors={['#E8EAF6', '#C5CAE9', '#9FA8DA']} shimmerSpeed={3000}>
         <View style={styles.header}>
           <View style={styles.iconBadge}>
