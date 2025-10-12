@@ -492,7 +492,7 @@ export default function HomeScreen() {
                   <View style={[styles.snapshotRow, { marginBottom:10 }]}> 
                     <Text style={styles.moodEmoji}>{getMoodEmoji(summary.latest.mood)}</Text>
                     <View style={{ flex:1 }}>
-                      <Text accessibilityLabel={`Latest: ${latestMoodLabel()}`} style={[styles.snapshotTextMain,{ color: theme.text }]}>{latestMoodLabel()}</Text>
+                      <Text accessibilityLabel={`Latest: ${latestMoodLabel}`} style={[styles.snapshotTextMain,{ color: theme.text }]}>{latestMoodLabel}</Text>
                       <Text style={[styles.snapshotSub,{ color: theme.textMuted }]}>Keep consistent logging for better insights</Text>
                     </View>
                     <TouchableOpacity style={[styles.linkBtn,{ backgroundColor: theme.bg === '#0B1722' ? '#1b2b3b' : '#E3F2FD' }]} onPress={()=> navigate('/moodTracker','medium')} accessibilityLabel="Log another mood entry">
