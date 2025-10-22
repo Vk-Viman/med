@@ -24,6 +24,7 @@ let lastActive = Date.now();
 function ActivityWrapper({ children }){
   const router = useRouter();
   const pathname = usePathname();
+  const pathnameRef = useRef('');
   const lockTimerRef = useRef(null);
   const intervalRef = useRef(0);
   const [localOnly, setLocalOnly] = React.useState(false);
@@ -41,8 +42,11 @@ function ActivityWrapper({ children }){
     if(intervalRef.current && intervalRef.current > 0){
       const diff = (Date.now() - lastActive)/1000;
       if(diff >= intervalRef.current && intervalRef.current>0){
-        if(!pathname.includes('biometricLogin') && !pathname.includes('login')){
-          AsyncStorage.setItem(LAST_ROUTE_BEFORE_LOCK_KEY, pathname).catch(()=>{});
+        const currentPath = pathnameRef.current || '';
+        if(!currentPath.includes('biometricLogin') && !currentPath.includes('login')){
+          AsyncStorage.setItem(LAST_ROUTE_BEFORE_LOCK_KEY, currentPath).catch(()=>{});
+          // Debug toast to help verify when auto-lock triggers in the wild
+          try { DeviceEventEmitter.emit('app-toast', { message: `Auto-locked after ${Math.round(diff)}s`, type:'info', duration: 1500 }); } catch {}
           if(biometricPrefRef.current){
             router.replace('/biometricLogin');
           } else {
@@ -58,10 +62,17 @@ function ActivityWrapper({ children }){
   // Apply interval changes instantly
   useEffect(()=>{
     const sub = DeviceEventEmitter.addListener('auto-lock-changed', ({ seconds })=>{ intervalRef.current = seconds; lastActive = Date.now(); });
-    return ()=> sub.remove();
+    const subLockNow = DeviceEventEmitter.addListener('lock-now', ()=>{
+      // Force immediate lock regardless of timer; saves current route and navigates
+      const currentPath = pathnameRef.current || '/(tabs)';
+      AsyncStorage.setItem(LAST_ROUTE_BEFORE_LOCK_KEY, currentPath).catch(()=>{});
+      try { DeviceEventEmitter.emit('app-toast', { message: 'Locking now…', type:'info', duration: 900 }); } catch {}
+      if(biometricPrefRef.current){ router.replace('/biometricLogin'); } else { router.replace('/login'); }
+    });
+    return ()=> { try{ sub.remove(); }catch{} try{ subLockNow.remove(); }catch{} };
   },[]);
-  // Reset inactivity timer on route change
-  useEffect(()=>{ lastActive = Date.now(); }, [pathname]);
+  // Reset inactivity timer on route change & keep latest pathname in a ref for interval callback
+  useEffect(()=>{ pathnameRef.current = pathname || ''; lastActive = Date.now(); }, [pathname]);
   useEffect(()=>{
     const sub = DeviceEventEmitter.addListener('local-only-changed', ({ enabled })=> setLocalOnly(enabled));
     // initial load of flag (reuse async key directly)
@@ -78,7 +89,25 @@ function ActivityWrapper({ children }){
     return ()=> sub.remove();
   },[]);
   useEffect(()=>{
-    const sub = AppState.addEventListener('change', state => { if(state==='active'){ loadInterval(); resetTimer(); } else { resetTimer(); } });
+    const onAppStateChange = (state) => {
+      if(state === 'active'){
+        // Refresh interval and immediately evaluate background elapsed time BEFORE resetting timer
+        loadInterval();
+        const elapsed = (Date.now() - lastActive) / 1000;
+        if (intervalRef.current && intervalRef.current > 0 && elapsed >= intervalRef.current) {
+          // Trigger lock right away if we exceeded the threshold while in background
+          checkLock();
+          // Do not reset timer here; navigation will occur if locking
+        } else {
+          // No lock required; start a fresh inactivity window
+          resetTimer();
+        }
+      } else {
+        // When app goes inactive/background, mark the timestamp to measure background duration
+        resetTimer();
+      }
+    };
+    const sub = AppState.addEventListener('change', onAppStateChange);
     lockTimerRef.current = setInterval(checkLock, 1000);
     return ()=>{ sub.remove(); if(lockTimerRef.current) clearInterval(lockTimerRef.current); };
   },[]);
@@ -201,7 +230,11 @@ function ActivityWrapper({ children }){
 
   return (
     <TouchableWithoutFeedback onPress={resetTimer} onLongPress={resetTimer}>
-      <View style={{ flex:1 }}>
+      <View
+        style={{ flex:1 }}
+        onStartShouldSetResponderCapture={() => { resetTimer(); return false; }}
+        onResponderStart={resetTimer}
+      >
         {children}
         {localOnly && !pathname.includes('login') && !pathname.includes('biometricLogin') && (
           <View style={stylesLocalOnly.badge} pointerEvents="none">

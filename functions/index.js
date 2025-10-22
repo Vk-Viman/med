@@ -7,6 +7,8 @@ const db = admin.firestore();
 
 // --- Moderation config ---
 const PERSPECTIVE_API_KEY = process.env.PERSPECTIVE_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY; // Set via Functions runtime env or .env (not committed)
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
 const MOD_FLAG = Number(process.env.MOD_FLAG || '0.6'); // flag threshold
 const MOD_BLOCK = Number(process.env.MOD_BLOCK || '0.8'); // auto-hide/block threshold
 const MOD_LANGS = (process.env.MOD_LANGS || 'en').split(',');
@@ -22,23 +24,46 @@ async function analyzeToxicity(text){
   if (banned.some(w=> lower.includes(w))){
     return { ok:false, flagged:true, blocked:true, score:0.99, reason:'Contains disallowed terms' };
   }
-  if(!PERSPECTIVE_API_KEY){
-    return { ok:true, flagged:false, blocked:false, score:0.0, reason:'heuristic-ok' };
+  // Try providers in order: Perspective -> Gemini -> fallback
+  if(PERSPECTIVE_API_KEY){
+    try{
+      const resp = await fetch(`https://commentanalyzer.googleapis.com/v1alpha1/comments:analyze?key=${PERSPECTIVE_API_KEY}`,{
+        method:'POST', headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ comment:{ text: trimmed }, languages: MOD_LANGS, requestedAttributes:{ TOXICITY:{} } })
+      });
+      const data = await resp.json();
+      const score = data?.attributeScores?.TOXICITY?.summaryScore?.value ?? 0;
+      const flagged = score >= MOD_FLAG;
+      const blocked = score >= MOD_BLOCK;
+      return { ok: !blocked, flagged, blocked, score, reason: flagged? 'toxic' : 'ok' };
+    } catch(e){ console.error('Perspective error', e); }
   }
-  try{
-    const resp = await fetch(`https://commentanalyzer.googleapis.com/v1alpha1/comments:analyze?key=${PERSPECTIVE_API_KEY}`,{
-      method:'POST', headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({ comment:{ text: trimmed }, languages: MOD_LANGS, requestedAttributes:{ TOXICITY:{} } })
-    });
-    const data = await resp.json();
-    const score = data?.attributeScores?.TOXICITY?.summaryScore?.value ?? 0;
-    const flagged = score >= MOD_FLAG;
-    const blocked = score >= MOD_BLOCK;
-    return { ok: !blocked, flagged, blocked, score, reason: flagged? 'toxic' : 'ok' };
-  } catch(e){
-    console.error('Perspective error', e);
-    return { ok:true, flagged:false, blocked:false, score:0.0, reason:'fallback-ok' };
+  if(GEMINI_API_KEY){
+    try{
+      // Use Gemini safetyRatings as a proxy for toxicity; take max probability across relevant categories
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+      const body = {
+        contents: [{ role:'user', parts:[{ text: trimmed }]}],
+        generationConfig: { temperature: 0 }
+      };
+      const r = await fetch(url, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+      const data = await r.json();
+      const ratings = (data && data.candidates && data.candidates[0] && data.candidates[0].safetyRatings) || [];
+      const probToScore = (p)=> p==='HIGH'?0.9 : p==='MEDIUM'?0.6 : p==='LOW'?0.3 : 0.0;
+      const categories = new Set(['HATE_SPEECH','HARASSMENT','SEXUAL_CONTENT','DANGEROUS_CONTENT']);
+      let maxScore = 0, reason = 'ok';
+      for(const r of ratings){
+        const cat = (r.category||'').toUpperCase();
+        if(!categories.has(cat)) continue;
+        const s = probToScore(r.probability||r.severity||'');
+        if(s > maxScore){ maxScore = s; reason = cat.toLowerCase(); }
+      }
+      const flagged = maxScore >= MOD_FLAG;
+      const blocked = maxScore >= MOD_BLOCK;
+      return { ok: !blocked, flagged, blocked, score: maxScore, reason: flagged? reason : 'ok' };
+    } catch(e){ console.error('Gemini moderation error', e); }
   }
+  return { ok:true, flagged:false, blocked:false, score:0.0, reason:'fallback-ok' };
 }
 
 // Secure moderation endpoint - requires Firebase ID token in Authorization: Bearer <token>
@@ -48,13 +73,18 @@ exports.moderateText = functions.region('us-central1').https.onRequest(async (re
   res.set('Access-Control-Allow-Headers','Content-Type,Authorization');
   if(req.method==='OPTIONS') return res.status(204).end();
   if(req.method!=='POST') return res.status(405).json({ error:'Method not allowed' });
-  try{
-    const authHeader = req.headers.authorization || '';
-    const m = authHeader.match(/^Bearer\s+(.*)$/i);
-    if(!m) return res.status(401).json({ error:'Missing token' });
-    const decoded = await admin.auth().verifyIdToken(m[1]);
-    if(!decoded?.uid) return res.status(401).json({ error:'Invalid token' });
-  }catch(e){ return res.status(401).json({ error:'Unauthorized' }); }
+  // Allow a narrow testing bypass ONLY when running in the local emulator
+  const isEmu = String(process.env.FUNCTIONS_EMULATOR||'').toLowerCase()==='true';
+  const emulatorBypass = isEmu && (req.headers['x-emulator-bypass']==='1');
+  if(!emulatorBypass){
+    try{
+      const authHeader = req.headers.authorization || '';
+      const m = authHeader.match(/^Bearer\s+(.*)$/i);
+      if(!m) return res.status(401).json({ error:'Missing token' });
+      const decoded = await admin.auth().verifyIdToken(m[1]);
+      if(!decoded?.uid) return res.status(401).json({ error:'Invalid token' });
+    }catch(e){ return res.status(401).json({ error:'Unauthorized' }); }
+  }
   try{
     const { text } = req.body || {};
     const result = await analyzeToxicity(text||'');

@@ -7,6 +7,18 @@ import { useRouter } from "expo-router";
 import ShimmerCard from "../src/components/ShimmerCard";
 import PulseButton from "../src/components/PulseButton";
 
+/*
+  BiometricLogin screen
+  ---------------------
+  Purpose: provide a simple, clear UI for unlocking the app using device biometrics
+  Notes for viva:
+  - Uses Expo LocalAuthentication to check hardware and enrolled biometrics.
+  - On success routes back to the last route (stored in AsyncStorage) or the app root.
+  - This is a convenience/unlock mechanism only; it does not by itself implement E2EE key wrapping
+    (that logic lives in `src/services/moodEntries.js`).
+  - Error states are surfaced via an Alert so the user understands failures.
+*/
+
 export default function BiometricLogin() {
   const [checking, setChecking] = useState(false);
   const router = useRouter();

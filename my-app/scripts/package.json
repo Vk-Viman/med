@@ -1,0 +1,9 @@
+{
+  "name": "viva-pdf-generator",
+  "version": "1.0.0",
+  "description": "Generate a one-page viva PDF for Member 3",
+  "private": true,
+  "dependencies": {
+    "pdfkit": "^0.13.0"
+  }
+}

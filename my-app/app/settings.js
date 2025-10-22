@@ -733,6 +733,8 @@ export default function SettingsScreen() {
         { key:'localOnly', type:'toggle', label:'Local-Only Mode', value: localOnly, onValueChange: toggleLocalOnly },
         { key:'biometric', type:'toggle', label:'Biometric Unlock', value: biometricPref, onValueChange: toggleBiometric },
         { key:'testBiometric', type:'action', label:'Test Biometric Login', onPress: testBiometricLogin },
+        { key:'lockNow', type:'action', label:'Lock Now (debug)', variant:'secondary', onPress: ()=>{ try{ DeviceEventEmitter.emit('lock-now'); }catch{} } },
+        { key:'moderationTest', type:'action', label:'Moderation Tester', variant:'secondary', onPress: ()=> router.push('/moderationTest') },
         { key:'haptics', type:'toggle', label:'Haptics', value: hapticsEnabled, onValueChange: toggleHaptics },
   { key:'darkMode', type:'toggle', label:'Dark Mode', value: mode==='dark', onValueChange: async(val)=>{ const next = val? 'dark':'light'; setThemeModeLocal(next); try { await setThemeMode(next); } catch {} try { await updateUserProfile({ themeMode: next }); } catch {} } },
         { key:'analyticsOptOut', type:'toggle', label:'Analytics Opt-Out', value: analyticsOptOut, onValueChange: async(val)=>{ setAnalyticsOptOut(val); try { await updateUserProfile({ analyticsOptOut: val }); } catch {} } },

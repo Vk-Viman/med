@@ -1,4 +1,12 @@
 // Mood Entries Service: CRUD + encryption + offline queue
+//
+// Viva notes / responsibilities:
+// - Implements client-side encryption for 'note' fields (see encryptV2 / decryptV2).
+// - Manages a device-scoped symmetric key stored in SecureStore (with AsyncStorage cache
+//   fallback). This is convenient but means the key is device-bound unless additional
+//   passphrase wrapping or cloud key backup is implemented.
+// - Supports an offline queue so entries can be created/updated/deleted while offline and
+//   flushed to Firestore when connectivity returns.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DeviceEventEmitter } from 'react-native';
 import { db, auth } from '../../firebase/firebaseConfig';
@@ -15,6 +23,11 @@ function getLegacyKeyIv(uid){
 }
 
 // SecureStore key (v2) management with in-memory + AsyncStorage fallback cache
+// Implementation detail (talking points):
+// - The `SECURE_KEY_ID` value is used as the SecureStore key. The stored value is the
+//   base64 of 32 random bytes (DataKey) used for AES-256-CBC encryption of note text.
+// - `getOrCreateSecureKey()` will throw EKEYLOCKED when passphrase-wrapping is enabled
+//   but the key has not been unlocked in this session. That models the locked-vault UX.
 const SECURE_KEY_ID = 'secure_mood_key_v1'; // base64 encoded 32 random bytes
 const SECURE_KEY_CACHE_KEY = 'secure_mood_key_cache_b64';
 let memoryKey = null;
@@ -55,7 +68,8 @@ async function getOrCreateSecureKey(){
     const random = await ExpoCrypto.getRandomBytesAsync(32);
     const keyWA = CryptoJS.lib.WordArray.create(random);
     const b64 = CryptoJS.enc.Base64.stringify(keyWA);
-    try { await SecureStore.setItemAsync(SECURE_KEY_ID, b64, { keychainService: SECURE_KEY_ID }); } catch {}
+  // store in platform secure store; on emulators this may fail so we fallback to AsyncStorage cache
+  try { await SecureStore.setItemAsync(SECURE_KEY_ID, b64, { keychainService: SECURE_KEY_ID }); } catch {}
     try { await AsyncStorage.setItem(SECURE_KEY_CACHE_KEY, b64); } catch {}
     k = b64;
   }
@@ -79,6 +93,9 @@ async function encryptV2(plain){
   const base64Key = await getOrCreateSecureKey();
   const keyWA = base64ToWordArray(base64Key); // 32 bytes
   const { ivWA, ivB64 } = await randomIvBase64();
+  // AES-256-CBC with PKCS7 padding. We generate a random 16-byte IV per entry and store it
+  // alongside the ciphertext (noteIv) so we can decrypt later. For stronger modern security
+  // prefer an AEAD (e.g., AES-GCM or XChaCha20-Poly1305) but CryptoJS offers this simple path.
   const ct = CryptoJS.AES.encrypt(plain || '', keyWA, { iv: ivWA, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 });
   return { cipher: ct.toString(), iv: ivB64, encVer: 2, alg: 'aes-256-cbc-pkcs7' };
 }
@@ -89,6 +106,8 @@ async function decryptV2(cipher, b64Iv){
     const keyWA = base64ToWordArray(base64Key);
     const ivWA = base64ToWordArray(b64Iv);
     const out = CryptoJS.AES.decrypt(cipher, keyWA, { iv: ivWA, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 });
+    // If decryption fails (bad key/iv) this returns an empty string. In a real E2EE flow you
+    // should surface decryption errors separately so users know whether their vault is locked.
     return out.toString(CryptoJS.enc.Utf8);
   } catch { return ''; }
 }
@@ -135,6 +154,8 @@ export async function flushQueue(){
 
 export async function createMoodEntry({ mood, stress, note }){
   const uid = auth.currentUser?.uid; if(!uid) throw new Error('Not logged in');
+  // Note content is encrypted client-side before being sent to Firestore.
+  // Stored fields: noteCipher, noteIv, encVer, noteAlg. The server cannot read `noteCipher`.
   const { cipher, iv, encVer, alg } = await encryptV2(note || '');
   const id = `${Date.now()}`;
   // Derive a numeric moodScore when possible to support insights

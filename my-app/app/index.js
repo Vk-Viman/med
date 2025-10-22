@@ -75,18 +75,24 @@ export default function HomeScreen() {
       setSummary(s);
       // Award streak badges opportunistically
       const uid = auth.currentUser?.uid; if(uid && s.streak){ try { await evaluateStreakBadges(uid, s.streak); } catch (e) { handleError(e, 'HomeScreen.evaluateStreakBadges', { severity: 'low' }); } }
-    } catch (e) { handleError(e, 'HomeScreen.loadData.moodSummary', { severity: 'medium' }); }
+  } catch (e) { handleError(e, 'HomeScreen.loadData.moodSummary', { severity: 'medium' }); }
     // Load recent badges for display
     try { const uid = auth.currentUser?.uid; if(uid){ const rec = await listUserBadges(uid, 6); setBadges(rec); } } catch (e) { handleError(e, 'HomeScreen.listUserBadges', { severity: 'low' }); }
-    // Build mood trends text summary (last 7 days) using cached minimal chart data
+  // Build mood trends text summary (last 7 days) using cached minimal chart data
+  // Viva points:
+  // - We prefer numeric moodScore fields for charting; when not present we attempt to parse
+  //   text labels into numeric scores (see moodTextToScore in this file and deriveMoodScore
+  //   in the service). This provides flexibility when different UI components send either
+  //   numeric or textual mood values.
     try {
       const uid = auth.currentUser?.uid; if(uid){
-        const rows = await getChartDataSince({ days: 7 });
+  const rows = await getChartDataSince({ days: 7 });
         // prefer numeric moodScore if present, else fallback to stress
         const moodsRaw = rows.map(r=> (r.moodScore ?? r.mood));
         const moods = moodsRaw.map(v=> typeof v === 'string' ? parseFloat(v) : v).filter(n=> Number.isFinite(n));
         const stress = rows.map(r=> (typeof r.stress === 'string' ? parseFloat(r.stress) : r.stress)).filter(n=> Number.isFinite(n));
-        // Decide which series to render: prefer mood if it has >=2, else stress if >=2
+  // Decide which series to render: prefer mood if it has >=2 datapoints, else stress.
+  // This fallback keeps the sparkline populated even if users only log stress or mood.
         if(moods.length >= 2){
           setMoodSeries(moods);
         } else if(stress.length >= 2){
